@@ -1,0 +1,291 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* CabinetX Futuristic Medical Design System - Light Mode */
+:root {
+  /* Background & Surfaces */
+  --background: oklch(0.98 0.01 155); /* Subtle green-tinted white */
+  --foreground: oklch(0.15 0.02 160); /* Deep green-black */
+  --card: oklch(0.99 0.005 155); /* Pure white with green hint */
+  --card-foreground: oklch(0.18 0.02 160);
+  --popover: oklch(0.99 0.005 155);
+  --popover-foreground: oklch(0.15 0.02 160);
+
+  /* Primary - Medical Green Futuristic */
+  --primary: oklch(0.65 0.18 155); /* Vibrant medical green */
+  --primary-foreground: oklch(0.99 0 0); /* Pure white */
+
+  /* Secondary - Deep Medical Green */
+  --secondary: oklch(0.92 0.03 155); /* Light green background */
+  --secondary-foreground: oklch(0.45 0.15 160); /* Deep green text */
+
+  /* Muted - Soft neutrals with green tint */
+  --muted: oklch(0.94 0.02 155);
+  --muted-foreground: oklch(0.52 0.05 160);
+
+  /* Accent - Neon Medical Green */
+  --accent: oklch(0.75 0.22 150); /* Bright neon green */
+  --accent-foreground: oklch(0.12 0.02 160); /* Dark text */
+
+  /* Destructive - Vibrant coral red */
+  --destructive: oklch(0.6 0.22 20);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  /* Warning - Neon orange */
+  --warning: oklch(0.72 0.18 80);
+  --warning-foreground: oklch(0.15 0.02 160);
+
+  /* Success - Electric mint green */
+  --success: oklch(0.7 0.2 145);
+  --success-foreground: oklch(0.15 0.02 160);
+
+  /* Info - Futuristic cyan blue */
+  --info: oklch(0.62 0.2 230);
+  --info-foreground: oklch(0.99 0 0);
+
+  /* Borders & Inputs */
+  --border: oklch(0.88 0.02 155);
+  --input: oklch(0.94 0.02 155);
+  --ring: oklch(0.65 0.18 155); /* Matches primary */
+
+  /* Charts - Medical green spectrum */
+  --chart-1: oklch(0.65 0.18 155); /* Primary green */
+  --chart-2: oklch(0.58 0.2 170); /* Teal green */
+  --chart-3: oklch(0.48 0.16 160); /* Deep green */
+  --chart-4: oklch(0.75 0.22 150); /* Neon green */
+  --chart-5: oklch(0.62 0.2 230); /* Cyan accent */
+
+  /* Border radius - More futuristic */
+  --radius: 0.75rem;
+
+  /* Sidebar */
+  --sidebar: oklch(0.96 0.015 155);
+  --sidebar-foreground: oklch(0.18 0.02 160);
+  --sidebar-primary: oklch(0.65 0.18 155);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.92 0.03 155);
+  --sidebar-accent-foreground: oklch(0.45 0.15 160);
+  --sidebar-border: oklch(0.88 0.02 155);
+  --sidebar-ring: oklch(0.65 0.18 155);
+
+  /* Grid pattern color */
+  --grid-pattern: oklch(0.65 0.18 155 / 0.1);
+}
+
+/* CabinetX Dark Mode - Futuristic Medical Theme */
+.dark {
+  /* Background & Surfaces - Dark with green tint */
+  --background: oklch(0.12 0.02 160); /* Deep black with green */
+  --foreground: oklch(0.95 0.01 155); /* Soft white */
+  --card: oklch(0.18 0.02 155); /* Dark card with green tint */
+  --card-foreground: oklch(0.95 0.01 155);
+  --popover: oklch(0.16 0.02 160);
+  --popover-foreground: oklch(0.95 0.01 155);
+
+  /* Primary - Bright neon green */
+  --primary: oklch(0.7 0.22 150); /* Neon medical green */
+  --primary-foreground: oklch(0.12 0.02 160); /* Dark text */
+
+  /* Secondary - Medium dark green */
+  --secondary: oklch(0.25 0.04 155);
+  --secondary-foreground: oklch(0.85 0.05 150);
+
+  /* Muted - Dark neutral with green */
+  --muted: oklch(0.22 0.03 155);
+  --muted-foreground: oklch(0.65 0.05 155);
+
+  /* Accent - Ultra bright cyan-green */
+  --accent: oklch(0.75 0.25 145); /* Bright cyan-green */
+  --accent-foreground: oklch(0.12 0.02 160);
+
+  /* Destructive - Vibrant coral */
+  --destructive: oklch(0.55 0.24 20);
+  --destructive-foreground: oklch(0.95 0 0);
+
+  /* Warning - Bright orange */
+  --warning: oklch(0.68 0.2 75);
+  --warning-foreground: oklch(0.12 0.02 160);
+
+  /* Success - Electric green */
+  --success: oklch(0.72 0.22 145);
+  --success-foreground: oklch(0.12 0.02 160);
+
+  /* Info - Neon cyan */
+  --info: oklch(0.65 0.22 230);
+  --info-foreground: oklch(0.12 0.02 160);
+
+  /* Borders & Inputs */
+  --border: oklch(0.25 0.03 155);
+  --input: oklch(0.22 0.03 155);
+  --ring: oklch(0.7 0.22 150); /* Neon green ring */
+
+  /* Charts - Vibrant neon medical spectrum */
+  --chart-1: oklch(0.7 0.22 150); /* Neon green */
+  --chart-2: oklch(0.65 0.22 170); /* Bright teal */
+  --chart-3: oklch(0.75 0.25 145); /* Cyan-green */
+  --chart-4: oklch(0.65 0.22 230); /* Neon cyan */
+  --chart-5: oklch(0.68 0.2 75); /* Neon orange */
+
+  /* Sidebar - Dark futuristic */
+  --sidebar: oklch(0.15 0.02 160);
+  --sidebar-foreground: oklch(0.9 0.02 155);
+  --sidebar-primary: oklch(0.7 0.22 150);
+  --sidebar-primary-foreground: oklch(0.12 0.02 160);
+  --sidebar-accent: oklch(0.22 0.03 155);
+  --sidebar-accent-foreground: oklch(0.85 0.05 150);
+  --sidebar-border: oklch(0.25 0.03 155);
+  --sidebar-ring: oklch(0.7 0.22 150);
+
+  /* Grid pattern color for dark mode */
+  --grid-pattern: oklch(0.7 0.22 150 / 0.1);
+}
+
+@theme inline {
+  --font-sans: "Geist", "Geist Fallback";
+  --font-mono: "Geist Mono", "Geist Mono Fallback";
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  /* Add custom status colors */
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Futuristic border radius values */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 6px);
+  --radius-2xl: calc(var(--radius) + 12px);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Custom utility classes for CabinetX futuristic effects */
+  .glass-card {
+    @apply bg-card/50 backdrop-blur-xl border border-border/50;
+  }
+
+  .glow-primary {
+    @apply shadow-lg shadow-primary/30;
+  }
+
+  .glow-accent {
+    @apply shadow-lg shadow-accent/40;
+  }
+
+  .text-glow {
+    text-shadow: 0 0 20px currentColor;
+  }
+
+  /* Fixed grid pattern background using custom property */
+  .bg-grid-pattern {
+    background-image: linear-gradient(to right, var(--grid-pattern) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid-pattern) 1px, transparent 1px);
+    background-size: 50px 50px;
+  }
+
+  /* Add custom animations for more dynamic effects */
+  @keyframes pulse-slow {
+    0%,
+    100% {
+      opacity: 0.1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.25;
+      transform: scale(1.05);
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-pulse-slow {
+    animation: pulse-slow 4s ease-in-out infinite;
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.5s ease-out;
+  }
+
+  .animate-fade-in-up {
+    animation: fade-in-up 0.6s ease-out;
+  }
+
+  .animation-delay-500 {
+    animation-delay: 0.5s;
+  }
+
+  .animation-delay-1000 {
+    animation-delay: 1s;
+  }
+
+  .animation-delay-1500 {
+    animation-delay: 1.5s;
+  }
+
+  .animation-delay-2000 {
+    animation-delay: 2s;
+  }
+}

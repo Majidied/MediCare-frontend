@@ -1,0 +1,151 @@
+@import '@angular/material/prebuilt-themes/indigo-pink.css';
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Couleurs Primaires - Vert Médical Futuriste */
+  --color-primary: oklch(0.65 0.18 155);
+  --color-primary-dark: oklch(0.45 0.15 160);
+  --color-primary-light: oklch(0.85 0.10 150);
+
+  /* Couleurs d'Accent */
+  --color-accent: oklch(0.75 0.22 150);
+  --color-secondary: oklch(0.55 0.18 230);
+
+  /* Couleurs Neutres Mode Clair */
+  --color-background: oklch(0.98 0.01 155);
+  --color-foreground: oklch(0.15 0.02 160);
+  --color-card: oklch(1 0 0);
+  --color-card-foreground: oklch(0.15 0.02 160);
+  --color-muted: oklch(0.94 0.02 155);
+  --color-muted-foreground: oklch(0.45 0.01 155);
+  --color-border: oklch(0.88 0.02 155);
+
+  /* Couleurs Neutres Mode Sombre */
+  --color-background-dark: oklch(0.12 0.02 160);
+  --color-foreground-dark: oklch(0.95 0 0);
+  --color-card-dark: oklch(0.18 0.02 155);
+  --color-card-foreground-dark: oklch(0.95 0 0);
+  --color-muted-dark: oklch(0.22 0.02 155);
+  --color-muted-foreground-dark: oklch(0.65 0.01 155);
+  --color-border-dark: oklch(0.25 0.03 155);
+
+  /* Couleurs d'État */
+  --color-success: oklch(0.70 0.20 145);
+  --color-warning: oklch(0.72 0.18 80);
+  --color-error: oklch(0.60 0.22 20);
+  --color-info: oklch(0.62 0.20 230);
+
+  /* Typographie */
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'Fira Code', monospace;
+
+  /* Radius */
+  --radius: 0.75rem;
+
+  color-scheme: light;
+  font-family: var(--font-sans);
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 20% 20%, color-mix(in oklch, var(--color-primary) 18%, transparent), transparent 35%),
+    radial-gradient(circle at 80% 10%, color-mix(in oklch, var(--color-secondary) 18%, transparent), transparent 32%),
+    linear-gradient(135deg, color-mix(in oklch, var(--color-background) 85%, transparent), color-mix(in oklch, var(--color-muted) 85%, transparent));
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  text-rendering: optimizeLegibility;
+}
+
+.dark {
+  color-scheme: dark;
+  background-color: var(--color-background-dark);
+  color: var(--color-foreground-dark);
+}
+
+.glass-panel {
+  backdrop-filter: blur(16px);
+  background: color-mix(in oklch, var(--color-card) 82%, transparent);
+  border: 1px solid color-mix(in oklch, var(--color-border) 60%, transparent);
+  box-shadow: 0 20px 60px -25px color-mix(in oklch, var(--color-primary) 30%, transparent);
+}
+
+.neon-border {
+  position: relative;
+  border: 1px solid color-mix(in oklch, var(--color-primary) 60%, transparent);
+  box-shadow: 0 0 25px -12px var(--color-primary);
+}
+
+.neon-border::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid transparent;
+  border-image: linear-gradient(120deg, var(--color-primary), var(--color-secondary)) 1;
+  pointer-events: none;
+  opacity: 0.8;
+}
+
+.grid-overlay {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+.bg-grid-pattern {
+  background-image:
+    linear-gradient(to right, color-mix(in oklch, var(--color-primary) 12%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklch, var(--color-primary) 12%, transparent) 1px, transparent 1px);
+  background-size: 50px 50px;
+}
+
+.glass-card {
+  backdrop-filter: blur(18px);
+  background: color-mix(in oklch, var(--color-card) 85%, transparent);
+  border: 1px solid color-mix(in oklch, var(--color-border) 65%, transparent);
+}
+
+.glow-primary {
+  box-shadow: 0 20px 60px -25px color-mix(in oklch, var(--color-primary) 40%, transparent);
+}
+
+.glow-accent {
+  box-shadow: 0 15px 45px -28px color-mix(in oklch, var(--color-accent) 55%, transparent);
+}
+
+.floating-blob {
+  filter: blur(40px);
+  opacity: 0.9;
+  animation: float 12s ease-in-out infinite;
+}
+
+@keyframes float {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(12px, -18px, 0) scale(1.06); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 0.16; transform: scale(1); }
+  50% { opacity: 0.28; transform: scale(1.05); }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 5s ease-in-out infinite;
+}
+
+.animation-delay-1000 { animation-delay: 1s; }
+
+.muted-card-shadow {
+  box-shadow: 0 24px 70px -30px color-mix(in oklch, var(--color-primary) 32%, transparent);
+}

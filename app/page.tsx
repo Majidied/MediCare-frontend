@@ -10,7 +10,6 @@ import { Label } from "@/components/ui/label"
 import { useTheme } from "next-themes"
 import { Moon, Sun } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
-import { authenticateUser } from "@/lib/mock-data"
 import { useToast } from "@/hooks/use-toast"
 
 export default function LoginPage() {
@@ -40,25 +39,20 @@ export default function LoginPage() {
     e.preventDefault()
     setIsLoading(true)
 
-    setTimeout(() => {
-      const user = authenticateUser(email, password)
-
-      if (user) {
-        login(user)
-        toast({
-          title: "Connexion réussie",
-          description: `Bienvenue ${user.name}`,
-        })
-        router.push(`/dashboard/${user.role}`)
-      } else {
-        toast({
-          title: "Erreur de connexion",
-          description: "Email ou mot de passe incorrect",
-          variant: "destructive",
-        })
-      }
+    try {
+      await login(email, password)
+      toast({
+        title: "Connexion réussie",
+        description: "Bienvenue sur CabinetX",
+      })
+    } catch (error: any) {
+      toast({
+        title: "Erreur de connexion",
+        description: error.message || "Email ou mot de passe incorrect",
+        variant: "destructive",
+      })
       setIsLoading(false)
-    }, 1000)
+    }
   }
 
   return (

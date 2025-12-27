@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Silent SSO</title>
+  </head>
+  <body>
+    <script>
+      // Required by keycloak-js for check-sso without redirecting the main window
+      parent.postMessage(window.location.href, window.location.origin);
+    </script>
+  </body>
+</html>

@@ -1,6 +1,18 @@
+// CabinetX-UI/CabinetXFrontEnd/api/patient.api.ts
+
 import apiClient from './client';
 
-// Types
+// Enums matched with Backend
+export type Sexe = 'MASCULIN' | 'FEMININ' | 'AUTRE';
+export type TypeMutuelle = 'CNSS' | 'CNOPS' | 'PRIVEE' | 'AUCUNE';
+
+export interface Adresse {
+    rue: string;
+    ville: string;
+    codePostal?: string;
+    pays?: string;
+}
+
 export interface Patient {
     id: number;
     nom: string;
@@ -8,28 +20,14 @@ export interface Patient {
     cin: string;
     dateNaissance: string;
     numTel: string;
-    adresse?: {
-        rue: string;
-        ville: string;
-    };
-    typeMutuelle?: string;
-    sexe: string;
+    adresse?: Adresse;
+    typeMutuelle?: TypeMutuelle;
+    sexe: Sexe;
     cabinetId: number;
 }
 
-export interface CreatePatientDTO {
-    nom: string;
-    prenom: string;
-    cin: string;
-    dateNaissance: string;
-    numTel: string;
-    adresse?: { rue: string; ville: string };
-    typeMutuelle?: string;
-    sexe: string;
-    cabinetId: number;
-}
+export interface CreatePatientDTO extends Omit<Patient, 'id'> {}
 
-// API Calls
 export const patientApi = {
     getAll: (nom?: string, prenom?: string) =>
         apiClient.get<Patient[]>('/api/patients', { params: { nom, prenom } }),

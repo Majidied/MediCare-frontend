@@ -34,8 +34,8 @@ export default function SecretairePatientsPage() {
     dateNaissance: "",
     numTel: "",
     adresse: { rue: "", ville: "" },
-    typeMutuelle: "",
-    sexe: "M",
+    typeMutuelle: "AUCUNE",
+    sexe: "MASCULIN",
     cabinetId: 1,
   })
 
@@ -57,8 +57,8 @@ export default function SecretairePatientsPage() {
       dateNaissance: "",
       numTel: "",
       adresse: { rue: "", ville: "" },
-      typeMutuelle: "",
-      sexe: "M",
+      typeMutuelle: "AUCUNE",
+      sexe: "MASCULIN",
       cabinetId: 1,
     })
     setErrors({})
@@ -71,7 +71,6 @@ export default function SecretairePatientsPage() {
     if (!formData.cin.trim()) newErrors.cin = "Le CIN est obligatoire"
     if (!formData.dateNaissance) newErrors.dateNaissance = "La date de naissance est obligatoire"
     if (!formData.numTel.trim()) newErrors.numTel = "Le téléphone est obligatoire"
-    if (!formData.adresse.rue.trim()) newErrors.adresse = "L'adresse est obligatoire"
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -122,7 +121,7 @@ export default function SecretairePatientsPage() {
       dateNaissance: patient.dateNaissance,
       numTel: patient.numTel,
       adresse: patient.adresse || { rue: "", ville: "" },
-      typeMutuelle: patient.typeMutuelle || "",
+      typeMutuelle: patient.typeMutuelle || "AUCUNE",
       sexe: patient.sexe,
       cabinetId: patient.cabinetId,
     })
@@ -164,17 +163,17 @@ export default function SecretairePatientsPage() {
         </div>
         <div className="space-y-2">
           <Label>Mutuelle</Label>
-          <Input value={formData.typeMutuelle} onChange={(e) => setFormData({ ...formData, typeMutuelle: e.target.value })} placeholder="CNSS, CNOPS, etc." />
+          <select
+            value={formData.typeMutuelle || "AUCUNE"}
+            onChange={(e) => setFormData({ ...formData, typeMutuelle: e.target.value as "CNSS" | "CNOPS" | "PRIVEE" | "AUCUNE" })}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            <option value="AUCUNE">Aucune</option>
+            <option value="CNSS">CNSS</option>
+            <option value="CNOPS">CNOPS</option>
+            <option value="PRIVEE">Privée</option>
+          </select>
         </div>
-      </div>
-      <div className="space-y-2">
-        <Label>Adresse *</Label>
-        <Input value={formData.adresse.rue} onChange={(e) => setFormData({ ...formData, adresse: { ...formData.adresse, rue: e.target.value } })} className={errors.adresse ? "border-destructive" : ""} />
-        {errors.adresse && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.adresse}</p>}
-      </div>
-      <div className="space-y-2">
-        <Label>Ville</Label>
-        <Input value={formData.adresse.ville} onChange={(e) => setFormData({ ...formData, adresse: { ...formData.adresse, ville: e.target.value } })} />
       </div>
     </div>
   )

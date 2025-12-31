@@ -4,6 +4,11 @@ import { createContext, useContext, useState, useEffect, type ReactNode } from "
 import { useRouter } from "next/navigation"
 import keycloak from "./keycloak"
 
+// Keycloak config constants - always available even before init
+const KEYCLOAK_URL = process.env.NEXT_PUBLIC_KEYCLOAK_URL || 'http://3.84.72.92:8080'
+const KEYCLOAK_REALM = process.env.NEXT_PUBLIC_KEYCLOAK_REALM || 'cabinetX-microservice-realm'
+const KEYCLOAK_CLIENT_ID = process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID || 'cabinetx-client'
+
 export type User = {
   id: string
   email: string
@@ -26,9 +31,118 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
 
+  // Function to refresh token using stored refresh token
+  const refreshTokenFromStorage = async (refreshToken: string) => {
+    try {
+      console.log("[v0] Tentative de rafraichissement du token depuis localStorage...")
+      const tokenUrl = `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/token`
+
+      const response = await fetch(tokenUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          client_id: KEYCLOAK_CLIENT_ID,
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+        }),
+      })
+
+      if (!response.ok) {
+        console.log("[v0] Refresh token invalide ou expiré, nettoyage...")
+        localStorage.removeItem("keycloak_token")
+        localStorage.removeItem("keycloak_refresh_token")
+        setIsLoading(false)
+        return
+      }
+
+      const data = await response.json()
+      const parsed = parseJwt(data.access_token)
+
+      if (!parsed) {
+        setIsLoading(false)
+        return
+      }
+
+      // Update keycloak instance
+      keycloak.token = data.access_token
+      keycloak.refreshToken = data.refresh_token
+      keycloak.tokenParsed = parsed
+      keycloak.authenticated = true
+
+      // Save new tokens
+      localStorage.setItem("keycloak_token", data.access_token)
+      localStorage.setItem("keycloak_refresh_token", data.refresh_token)
+
+      // Set user
+      const roles = parsed.realm_access?.roles || []
+      const userRole = roles.includes("ADMIN") ? "admin" : roles.includes("MEDECIN") ? "medecin" : "secretaire"
+
+      setUser({
+        id: parsed.sub || "",
+        email: parsed.email || "",
+        name: parsed.name || parsed.preferred_username || "",
+        role: userRole,
+      })
+
+      console.log("[v0] Session restaurée via refresh token")
+      setIsLoading(false)
+    } catch (error) {
+      console.error("[v0] Erreur refresh token:", error)
+      localStorage.removeItem("keycloak_token")
+      localStorage.removeItem("keycloak_refresh_token")
+      setIsLoading(false)
+    }
+  }
+
   useEffect(() => {
     console.log("[v0] Initialisation de Keycloak...")
 
+    // Check for existing tokens in localStorage FIRST
+    const storedToken = localStorage.getItem("keycloak_token")
+    const storedRefreshToken = localStorage.getItem("keycloak_refresh_token")
+
+    if (storedToken) {
+      console.log("[v0] Token trouvé dans localStorage, vérification...")
+      const parsed = parseJwt(storedToken)
+
+      if (parsed && parsed.exp && parsed.exp * 1000 > Date.now()) {
+        // Token is still valid - restore session immediately
+        console.log("[v0] Token valide, restauration de la session...")
+
+        keycloak.token = storedToken
+        keycloak.refreshToken = storedRefreshToken || undefined
+        keycloak.tokenParsed = parsed
+        keycloak.authenticated = true
+
+        const roles = parsed.realm_access?.roles || []
+        const userRole = roles.includes("ADMIN") ? "admin" : roles.includes("MEDECIN") ? "medecin" : "secretaire"
+
+        setUser({
+          id: parsed.sub || "",
+          email: parsed.email || "",
+          name: parsed.name || parsed.preferred_username || "",
+          role: userRole,
+        })
+
+        console.log("[v0] Session restaurée depuis localStorage pour:", parsed.name || parsed.preferred_username)
+        setIsLoading(false)
+        return // Skip Keycloak init - we already have a valid session
+      } else if (storedRefreshToken) {
+        // Access token expired but refresh token exists - try to refresh
+        console.log("[v0] Token expiré, tentative de refresh...")
+        refreshTokenFromStorage(storedRefreshToken)
+        return
+      } else {
+        // Token expired and no refresh token - clean up
+        console.log("[v0] Token expiré sans refresh token, nettoyage...")
+        localStorage.removeItem("keycloak_token")
+        localStorage.removeItem("keycloak_refresh_token")
+      }
+    }
+
+    // No valid stored token - proceed with normal Keycloak init
     keycloak
       .init({
         onLoad: "check-sso",
@@ -90,7 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         keycloak.clearToken()
       }
 
-      const tokenUrl = `${keycloak.authServerUrl}/realms/${keycloak.realm}/protocol/openid-connect/token`
+      const tokenUrl = `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/token`
       console.log("[v0] URL token:", tokenUrl)
 
       const response = await fetch(tokenUrl, {
@@ -99,7 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           "Content-Type": "application/x-www-form-urlencoded",
         },
         body: new URLSearchParams({
-          client_id: keycloak.clientId || "",
+          client_id: KEYCLOAK_CLIENT_ID,
           grant_type: "password",
           username: email,
           password: password,
@@ -138,9 +252,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const roles = parsedToken.realm_access?.roles || []
       console.log("[v0] Roles extraits:", roles)
 
-      const userRole = roles.includes("ADMIN") ? "admin" : roles.includes("MEDECIN") ? "medecin" : "secretaire"
+      const userRole: "admin" | "medecin" | "secretaire" = roles.includes("ADMIN") ? "admin" : roles.includes("MEDECIN") ? "medecin" : "secretaire"
 
-      const newUser = {
+      const newUser: User = {
         id: parsedToken.sub || "",
         email: parsedToken.email || email,
         name: parsedToken.name || parsedToken.preferred_username || email,

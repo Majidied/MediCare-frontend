@@ -15,76 +15,82 @@ import {
   Edit,
   Trash2,
   Phone,
-  Mail,
   Calendar,
   X,
   Search,
-  Crown,
   CheckCircle2,
   Map,
   Grid3x3,
-  UserPlus,
-  UserMinus,
+  Loader2,
+  Power,
+  PowerOff,
+  Stethoscope,
 } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useToast } from "@/hooks/use-toast"
-import { MOCK_CABINETS, MOCK_USERS, type Cabinet, type User } from "@/lib/mock-data"
+import { clinicApi, type ClinicDTO, type ClinicStatus } from "@/api/clinic.api"
 
 export default function CabinetsPage() {
-  const [cabinets, setCabinets] = useState<Cabinet[]>(MOCK_CABINETS)
-  const [users, setUsers] = useState<User[]>(MOCK_USERS)
-  const [selectedCabinet, setSelectedCabinet] = useState<Cabinet | null>(null)
+  const [clinics, setClinics] = useState<ClinicDTO[]>([])
+  const [selectedClinic, setSelectedClinic] = useState<ClinicDTO | null>(null)
   const [showDialog, setShowDialog] = useState(false)
-  const [showUsersDialog, setShowUsersDialog] = useState(false)
-  const [showAssignDialog, setShowAssignDialog] = useState(false)
+  const [showDetailsDialog, setShowDetailsDialog] = useState(false)
   const [dialogMode, setDialogMode] = useState<"create" | "edit">("create")
   const [searchQuery, setSearchQuery] = useState("")
   const [viewMode, setViewMode] = useState<"map" | "grid">("map")
+  const [isLoading, setIsLoading] = useState(true)
   const { toast } = useToast()
 
   const [formData, setFormData] = useState({
     name: "",
-    address: "",
+    specialty: "",
     phone: "",
-    email: "",
-    city: "",
-    country: "Maroc",
-    postalCode: "",
-    status: "Actif" as "Actif" | "Inactif",
-    subscriptionPlan: "Basic" as "Basic" | "Premium" | "Enterprise",
-    subscriptionEndDate: "",
+    address: "",
+    logoUrl: "",
+    status: "ACTIVE" as ClinicStatus,
+    serviceEndDate: "",
   })
 
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  const filteredCabinets = cabinets.filter(
-    (cabinet) =>
-      cabinet.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cabinet.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cabinet.email.toLowerCase().includes(searchQuery.toLowerCase()),
+  // Fetch clinics on mount
+  useEffect(() => {
+    fetchClinics()
+  }, [])
+
+  const fetchClinics = async () => {
+    try {
+      setIsLoading(true)
+      const response = await clinicApi.getAll()
+      setClinics(response.data)
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible de charger les cabinets",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const filteredClinics = clinics.filter(
+    (clinic) =>
+      clinic.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      clinic.specialty.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      clinic.address.toLowerCase().includes(searchQuery.toLowerCase()),
   )
-
-  const getUsersForCabinet = (cabinetId: string): User[] => {
-    return users.filter((user) => user.cabinetId === cabinetId)
-  }
-
-  const getAvailableUsers = (): User[] => {
-    return users.filter((user) => user.role !== "admin" && !user.cabinetId)
-  }
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {}
+    console.log("Validating form data:", formData)
     if (!formData.name.trim()) newErrors.name = "Le nom du cabinet est requis"
+    if (!formData.specialty.trim()) newErrors.specialty = "La spécialité est requise"
     if (!formData.address.trim()) newErrors.address = "L'adresse est requise"
     if (!formData.phone.trim()) newErrors.phone = "Le téléphone est requis"
-    if (!formData.email.trim()) newErrors.email = "L'email est requis"
-    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = "Email invalide"
-    }
-    if (!formData.city.trim()) newErrors.city = "La ville est requise"
-    if (!formData.postalCode.trim()) newErrors.postalCode = "Le code postal est requis"
-    if (!formData.subscriptionEndDate) newErrors.subscriptionEndDate = "La date de fin d'abonnement est requise"
+    if (!formData.serviceEndDate) newErrors.serviceEndDate = "La date de fin de service est requise"
 
+    console.log("Validation errors:", newErrors)
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -93,112 +99,148 @@ export default function CabinetsPage() {
     setDialogMode("create")
     setFormData({
       name: "",
-      address: "",
+      specialty: "",
       phone: "",
-      email: "",
-      city: "",
-      country: "Maroc",
-      postalCode: "",
-      status: "Actif",
-      subscriptionPlan: "Basic",
-      subscriptionEndDate: "",
+      address: "",
+      logoUrl: "",
+      status: "ACTIVE",
+      serviceEndDate: "",
     })
     setErrors({})
     setShowDialog(true)
   }
 
-  const handleEdit = (cabinet: Cabinet) => {
+  const handleEdit = (clinic: ClinicDTO) => {
+    console.log("Editing clinic:", clinic)
     setDialogMode("edit")
-    setSelectedCabinet(cabinet)
+    setSelectedClinic(clinic)
     setFormData({
-      name: cabinet.name,
-      address: cabinet.address,
-      phone: cabinet.phone,
-      email: cabinet.email,
-      city: cabinet.city,
-      country: cabinet.country,
-      postalCode: cabinet.postalCode,
-      status: cabinet.status,
-      subscriptionPlan: cabinet.subscriptionPlan,
-      subscriptionEndDate: cabinet.subscriptionEndDate,
+      name: clinic.name,
+      specialty: clinic.specialty,
+      phone: clinic.phone,
+      address: clinic.address,
+      logoUrl: clinic.logoUrl || "",
+      status: clinic.status || "ACTIVE",
+      serviceEndDate: clinic.serviceEndDate || "",
     })
     setErrors({})
     setShowDialog(true)
   }
 
-  const handleSave = () => {
-    if (!validateForm()) return
+  const handleSave = async () => {
+    console.log("handleSave called, dialogMode:", dialogMode)
+    if (!validateForm()) {
+      console.log("Validation failed, stopping")
+      return
+    }
+    console.log("Validation passed, proceeding...")
+    console.log("selectedClinic:", selectedClinic)
+    console.log("selectedClinic.id:", selectedClinic?.id)
 
-    if (dialogMode === "create") {
-      const newCabinet: Cabinet = {
-        id: `cab${cabinets.length + 1}`,
-        ...formData,
-        userIds: [],
-        createdAt: new Date().toISOString(),
+    try {
+      if (dialogMode === "create") {
+        const createData: any = {
+          name: formData.name.trim(),
+          specialty: formData.specialty.trim(),
+          phone: formData.phone.trim(),
+          address: formData.address.trim(),
+          status: formData.status,
+          serviceEndDate: formData.serviceEndDate,
+        }
+        if (formData.logoUrl.trim()) {
+          createData.logoUrl = formData.logoUrl.trim()
+        }
+        console.log("Creating clinic with data:", createData)
+        const response = await clinicApi.create(createData)
+        setClinics([...clinics, response.data])
+        toast({ title: "Succès", description: "Cabinet créé avec succès" })
+      } else if (selectedClinic?.id) {
+        const updateData: any = {
+          name: formData.name.trim(),
+          specialty: formData.specialty.trim(),
+          phone: formData.phone.trim(),
+          address: formData.address.trim(),
+          status: formData.status,
+          serviceEndDate: formData.serviceEndDate,
+        }
+        if (formData.logoUrl.trim()) {
+          updateData.logoUrl = formData.logoUrl.trim()
+        }
+        console.log("Updating clinic ID:", selectedClinic.id, "with data:", updateData)
+        const response = await clinicApi.update(selectedClinic.id, updateData)
+        console.log("Update response:", response.data)
+        setClinics(clinics.map((c) => (c.id === selectedClinic.id ? response.data : c)))
+        toast({ title: "Succès", description: "Cabinet mis à jour avec succès" })
       }
-      setCabinets([...cabinets, newCabinet])
-      toast({ title: "Succès", description: "Cabinet créé avec succès" })
-    } else if (selectedCabinet) {
-      setCabinets(cabinets.map((c) => (c.id === selectedCabinet.id ? { ...selectedCabinet, ...formData } : c)))
-      toast({ title: "Succès", description: "Cabinet mis à jour avec succès" })
-    }
-    setShowDialog(false)
-  }
-
-  const handleDelete = (cabinet: Cabinet) => {
-    if (confirm(`Êtes-vous sûr de vouloir supprimer ${cabinet.name} ?`)) {
-      setCabinets(cabinets.filter((c) => c.id !== cabinet.id))
-      // Also unassign users from this cabinet
-      setUsers(users.map((user) => (user.cabinetId === cabinet.id ? { ...user, cabinetId: undefined } : user)))
-      toast({ title: "Succès", description: "Cabinet supprimé avec succès" })
+      setShowDialog(false)
+    } catch (error: any) {
+      console.error("Error saving clinic:", error)
+      console.error("Error response:", error?.response?.data)
+      toast({
+        title: "Erreur",
+        description: error?.response?.data?.message || (dialogMode === "create" ? "Impossible de créer le cabinet" : "Impossible de mettre à jour le cabinet"),
+        variant: "destructive",
+      })
     }
   }
 
-  const handleViewUsers = (cabinet: Cabinet) => {
-    setSelectedCabinet(cabinet)
-    setShowUsersDialog(true)
+  const handleActivate = async (clinic: ClinicDTO) => {
+    if (!clinic.id) return
+    try {
+      const response = await clinicApi.activate(clinic.id)
+      setClinics(clinics.map((c) => (c.id === clinic.id ? response.data : c)))
+      toast({ title: "Succès", description: `${clinic.name} a été activé` })
+    } catch (error) {
+      toast({ title: "Erreur", description: "Impossible d'activer le cabinet", variant: "destructive" })
+    }
   }
 
-  const handleAssignUser = (userId: string) => {
-    if (!selectedCabinet) return
-    setUsers(users.map((u) => (u.id === userId ? { ...u, cabinetId: selectedCabinet.id } : u)))
-    toast({ title: "Succès", description: "Utilisateur assigné au cabinet" })
+  const handleDeactivate = async (clinic: ClinicDTO) => {
+    if (!clinic.id) return
+    try {
+      const response = await clinicApi.deactivate(clinic.id)
+      setClinics(clinics.map((c) => (c.id === clinic.id ? response.data : c)))
+      toast({ title: "Succès", description: `${clinic.name} a été désactivé` })
+    } catch (error) {
+      toast({ title: "Erreur", description: "Impossible de désactiver le cabinet", variant: "destructive" })
+    }
   }
 
-  const handleUnassignUser = (userId: string) => {
-    setUsers(users.map((u) => (u.id === userId ? { ...u, cabinetId: undefined } : u)))
-    toast({ title: "Succès", description: "Utilisateur retiré du cabinet" })
+  const handleViewDetails = (clinic: ClinicDTO) => {
+    setSelectedClinic(clinic)
+    setShowDetailsDialog(true)
   }
 
-  const getPlanColor = (plan: string) => {
-    switch (plan) {
-      case "Basic":
-        return "bg-blue-500/10 text-blue-500 border-blue-500/20"
-      case "Premium":
-        return "bg-purple-500/10 text-purple-500 border-purple-500/20"
-      case "Enterprise":
-        return "bg-amber-500/10 text-amber-500 border-amber-500/20"
+  const getStatusColor = (status: ClinicStatus) => {
+    switch (status) {
+      case "ACTIVE":
+        return "border-success text-success"
+      case "INACTIVE":
+        return "border-destructive text-destructive"
+      case "SUSPENDED":
+        return "border-warning text-warning"
       default:
-        return "bg-gray-500/10 text-gray-500 border-gray-500/20"
+        return "border-muted text-muted-foreground"
     }
   }
 
-  const getRoleBadgeColor = (role: string) => {
-    switch (role) {
-      case "medecin":
-        return "bg-primary/10 text-primary border-primary/20"
-      case "secretaire":
-        return "bg-blue-500/10 text-blue-500 border-blue-500/20"
+  const getStatusLabel = (status: ClinicStatus) => {
+    switch (status) {
+      case "ACTIVE":
+        return "Actif"
+      case "INACTIVE":
+        return "Inactif"
+      case "SUSPENDED":
+        return "Suspendu"
       default:
-        return "bg-gray-500/10 text-gray-500 border-gray-500/20"
+        return status
     }
   }
 
   const stats = [
-    { label: "Total Cabinets", value: cabinets.length, icon: Building2 },
-    { label: "Cabinets Actifs", value: cabinets.filter((c) => c.status === "Actif").length, icon: CheckCircle2 },
-    { label: "Total Utilisateurs", value: users.filter((u) => u.cabinetId).length, icon: Users },
-    { label: "Premium +", value: cabinets.filter((c) => c.subscriptionPlan !== "Basic").length, icon: Crown },
+    { label: "Total Cabinets", value: clinics.length, icon: Building2 },
+    { label: "Cabinets Actifs", value: clinics.filter((c) => c.status === "ACTIVE").length, icon: CheckCircle2 },
+    { label: "Spécialités", value: [...new Set(clinics.map((c) => c.specialty))].length, icon: Stethoscope },
   ]
 
   return (
@@ -237,7 +279,7 @@ export default function CabinetsPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {stats.map((stat, index) => (
             <Card
               key={index}
@@ -277,162 +319,156 @@ export default function CabinetsPage() {
               />
             </div>
 
-            {/* Map markers for cabinets */}
-            <div className="relative grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 h-full">
-              {filteredCabinets.map((cabinet, index) => {
-                const users = getUsersForCabinet(cabinet.id)
-                const isActive = cabinet.status === "Actif"
-
-                return (
-                  <div
-                    key={cabinet.id}
-                    className={`relative group cursor-pointer animate-fade-in-up`}
-                    style={{ animationDelay: `${index * 150}ms` }}
-                    onClick={() => handleViewUsers(cabinet)}
-                  >
-                    {/* Connection lines visual effect */}
-                    <div className="absolute inset-0 -z-10">
-                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[200%] h-[200%] opacity-0 group-hover:opacity-20 transition-opacity duration-500">
-                        <div className="absolute inset-0 bg-gradient-radial from-primary/30 to-transparent" />
-                      </div>
-                    </div>
-
-                    {/* Cabinet marker card */}
-                    <Card
-                      className={`glass-card p-6 hover:scale-105 transition-all duration-300 border-2 ${
-                        isActive ? "border-primary/30 glow-primary" : "border-border/30"
-                      }`}
-                    >
-                      {/* Cabinet Icon with pulse animation */}
-                      <div className="flex items-center gap-4 mb-4">
-                        <div className="relative">
-                          <div
-                            className={`p-4 rounded-2xl bg-gradient-to-br ${
-                              isActive
-                                ? "from-primary/20 to-primary/5 border-2 border-primary/30"
-                                : "from-muted/20 to-muted/5 border-2 border-muted/30"
-                            }`}
-                          >
-                            <Building2 className={`w-8 h-8 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
-                          </div>
-                          {isActive && (
-                            <div className="absolute -top-1 -right-1">
-                              <div className="relative flex h-3 w-3">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
-                                <span className="relative inline-flex rounded-full h-3 w-3 bg-success" />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-bold text-lg truncate">{cabinet.name}</h3>
-                          <Badge
-                            variant="outline"
-                            className={isActive ? "border-success text-success" : "border-destructive text-destructive"}
-                          >
-                            {cabinet.status}
-                          </Badge>
-                        </div>
-
-                        {/* Edit/Delete buttons */}
-                        <div
-                          className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Button variant="ghost" size="icon" onClick={() => handleEdit(cabinet)} className="h-8 w-8">
-                            <Edit className="w-3 h-3" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDelete(cabinet)}
-                            className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Location info */}
-                      <div className="space-y-2 text-sm mb-4">
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <MapPin className="w-4 h-4 text-primary" />
-                          <span className="font-medium">
-                            {cabinet.city}, {cabinet.country}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <Phone className="w-4 h-4" />
-                          <span>{cabinet.phone}</span>
-                        </div>
-                      </div>
-
-                      {/* Users count with avatars */}
-                      <div className="flex items-center justify-between pt-4 border-t border-border/50">
-                        <div className="flex items-center gap-2">
-                          <Users className="w-4 h-4 text-primary" />
-                          <span className="text-sm font-medium">{users.length} membre(s)</span>
-                        </div>
-                        {users.length > 0 && (
-                          <div className="flex -space-x-2">
-                            {users.slice(0, 3).map((user) => (
-                              <Avatar
-                                key={user.id}
-                                className="w-8 h-8 border-2 border-background ring-2 ring-primary/20"
-                              >
-                                <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                                  {user.name
-                                    .split(" ")
-                                    .map((n) => n[0])
-                                    .join("")}
-                                </AvatarFallback>
-                              </Avatar>
-                            ))}
-                            {users.length > 3 && (
-                              <div className="w-8 h-8 rounded-full bg-primary/10 border-2 border-background ring-2 ring-primary/20 flex items-center justify-center">
-                                <span className="text-xs text-primary font-bold">+{users.length - 3}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Plan badge */}
-                      <div className="mt-4 flex items-center gap-2">
-                        <Badge variant="outline" className={getPlanColor(cabinet.subscriptionPlan)}>
-                          {cabinet.subscriptionPlan}
-                        </Badge>
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground ml-auto">
-                          <Calendar className="w-3 h-3" />
-                          {new Date(cabinet.subscriptionEndDate).toLocaleDateString("fr-FR")}
-                        </div>
-                      </div>
-                    </Card>
-                  </div>
-                )
-              })}
-            </div>
-
-            {filteredCabinets.length === 0 && (
+            {/* Loading State */}
+            {isLoading ? (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center">
-                  <Building2 className="w-16 h-16 text-muted-foreground/30 mx-auto mb-4" />
-                  <p className="text-muted-foreground">Aucun cabinet trouvé</p>
+                  <Loader2 className="w-12 h-12 text-primary mx-auto mb-4 animate-spin" />
+                  <p className="text-muted-foreground">Chargement des cabinets...</p>
                 </div>
               </div>
+            ) : (
+              <>
+                {/* Map markers for clinics */}
+                <div className="relative grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 h-full">
+                  {filteredClinics.map((clinic, index) => {
+                    const isActive = clinic.status === "ACTIVE"
+
+                    return (
+                      <div
+                        key={clinic.id ?? `clinic-${index}`}
+                        className={`relative group cursor-pointer animate-fade-in-up`}
+                        style={{ animationDelay: `${index * 150}ms` }}
+                        onClick={() => handleViewDetails(clinic)}
+                      >
+                        {/* Connection lines visual effect */}
+                        <div className="absolute inset-0 -z-10">
+                          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[200%] h-[200%] opacity-0 group-hover:opacity-20 transition-opacity duration-500">
+                            <div className="absolute inset-0 bg-gradient-radial from-primary/30 to-transparent" />
+                          </div>
+                        </div>
+
+                        {/* Clinic marker card */}
+                        <Card
+                          className={`glass-card p-6 hover:scale-105 transition-all duration-300 border-2 ${
+                            isActive ? "border-primary/30 glow-primary" : "border-border/30"
+                          }`}
+                        >
+                          {/* Clinic Icon with pulse animation */}
+                          <div className="flex items-center gap-4 mb-4">
+                            <div className="relative">
+                              <div
+                                className={`p-4 rounded-2xl bg-gradient-to-br ${
+                                  isActive
+                                    ? "from-primary/20 to-primary/5 border-2 border-primary/30"
+                                    : "from-muted/20 to-muted/5 border-2 border-muted/30"
+                                }`}
+                              >
+                                <Building2 className={`w-8 h-8 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
+                              </div>
+                              {isActive && (
+                                <div className="absolute -top-1 -right-1">
+                                  <div className="relative flex h-3 w-3">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+                                    <span className="relative inline-flex rounded-full h-3 w-3 bg-success" />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-bold text-lg truncate">{clinic.name}</h3>
+                              <Badge variant="outline" className={getStatusColor(clinic.status)}>
+                                {getStatusLabel(clinic.status)}
+                              </Badge>
+                            </div>
+
+                            {/* Edit/Activate buttons */}
+                            <div
+                              className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Button variant="ghost" size="icon" onClick={() => handleEdit(clinic)} className="h-8 w-8">
+                                <Edit className="w-3 h-3" />
+                              </Button>
+                              {clinic.status === "ACTIVE" ? (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleDeactivate(clinic)}
+                                  className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                >
+                                  <PowerOff className="w-3 h-3" />
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleActivate(clinic)}
+                                  className="h-8 w-8 text-success hover:bg-success/10"
+                                >
+                                  <Power className="w-3 h-3" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Location info */}
+                          <div className="space-y-2 text-sm mb-4">
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                              <Stethoscope className="w-4 h-4 text-primary" />
+                              <span className="font-medium">{clinic.specialty}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                              <MapPin className="w-4 h-4" />
+                              <span className="truncate">{clinic.address}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                              <Phone className="w-4 h-4" />
+                              <span>{clinic.phone}</span>
+                            </div>
+                          </div>
+
+                          {/* Service end date */}
+                          <div className="mt-4 flex items-center gap-2 pt-4 border-t border-border/50">
+                            <Calendar className="w-4 h-4 text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground">
+                              Fin de service: {new Date(clinic.serviceEndDate).toLocaleDateString("fr-FR")}
+                            </span>
+                          </div>
+                        </Card>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {filteredClinics.length === 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-center">
+                      <Building2 className="w-16 h-16 text-muted-foreground/30 mx-auto mb-4" />
+                      <p className="text-muted-foreground">Aucun cabinet trouvé</p>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         ) : (
           // Grid view (existing layout)
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {filteredCabinets.map((cabinet) => {
-              const cabinetUsers = getUsersForCabinet(cabinet.id)
-              return (
+            {isLoading ? (
+              <Card className="glass-card p-12 col-span-full">
+                <div className="text-center">
+                  <Loader2 className="w-12 h-12 text-primary mx-auto mb-4 animate-spin" />
+                  <p className="text-muted-foreground">Chargement des cabinets...</p>
+                </div>
+              </Card>
+            ) : (
+              filteredClinics.map((clinic, index) => (
                 <Card
-                  key={cabinet.id}
+                  key={clinic.id ?? `clinic-grid-${index}`}
                   className="glass-card p-6 hover:scale-105 transition-all duration-300 cursor-pointer glow-primary group"
-                  onClick={() => handleViewUsers(cabinet)}
+                  onClick={() => handleViewDetails(clinic)}
                 >
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center gap-3">
@@ -440,16 +476,9 @@ export default function CabinetsPage() {
                         <Building2 className="w-5 h-5 text-primary" />
                       </div>
                       <div>
-                        <h3 className="font-semibold text-lg">{cabinet.name}</h3>
-                        <Badge
-                          variant="outline"
-                          className={
-                            cabinet.status === "Actif"
-                              ? "border-success text-success"
-                              : "border-destructive text-destructive"
-                          }
-                        >
-                          {cabinet.status}
+                        <h3 className="font-semibold text-lg">{clinic.name}</h3>
+                        <Badge variant="outline" className={getStatusColor(clinic.status)}>
+                          {getStatusLabel(clinic.status)}
                         </Badge>
                       </div>
                     </div>
@@ -457,53 +486,55 @@ export default function CabinetsPage() {
                       className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <Button variant="ghost" size="icon" onClick={() => handleEdit(cabinet)} className="h-8 w-8">
+                      <Button variant="ghost" size="icon" onClick={() => handleEdit(clinic)} className="h-8 w-8">
                         <Edit className="w-3 h-3" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(cabinet)}
-                        className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
+                      {clinic.status === "ACTIVE" ? (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeactivate(clinic)}
+                          className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                        >
+                          <PowerOff className="w-3 h-3" />
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleActivate(clinic)}
+                          className="h-8 w-8 text-success hover:bg-success/10"
+                        >
+                          <Power className="w-3 h-3" />
+                        </Button>
+                      )}
                     </div>
                   </div>
 
                   <div className="space-y-2 text-sm">
                     <div className="flex items-center gap-2 text-muted-foreground">
+                      <Stethoscope className="w-4 h-4" />
+                      <span>{clinic.specialty}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
                       <MapPin className="w-4 h-4" />
-                      <span>
-                        {cabinet.city}, {cabinet.country}
-                      </span>
+                      <span className="truncate">{clinic.address}</span>
                     </div>
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Phone className="w-4 h-4" />
-                      <span>{cabinet.phone}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Mail className="w-4 h-4" />
-                      <span className="truncate">{cabinet.email}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Users className="w-4 h-4" />
-                      <span>{cabinetUsers.length} utilisateur(s)</span>
+                      <span>{clinic.phone}</span>
                     </div>
                   </div>
 
                   <div className="mt-4 pt-4 border-t border-border/50 flex items-center justify-between">
-                    <Badge variant="outline" className={getPlanColor(cabinet.subscriptionPlan)}>
-                      {cabinet.subscriptionPlan}
-                    </Badge>
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Calendar className="w-3 h-3" />
-                      {new Date(cabinet.subscriptionEndDate).toLocaleDateString("fr-FR")}
+                      {new Date(clinic.serviceEndDate).toLocaleDateString("fr-FR")}
                     </div>
                   </div>
                 </Card>
-              )
-            })}
+              ))
+            )}
           </div>
         )}
 
@@ -533,15 +564,15 @@ export default function CabinetsPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="email">Email *</Label>
+                    <Label htmlFor="specialty">Spécialité *</Label>
                     <Input
-                      id="email"
-                      type="email"
-                      value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      className={errors.email ? "border-destructive" : ""}
+                      id="specialty"
+                      value={formData.specialty}
+                      onChange={(e) => setFormData({ ...formData, specialty: e.target.value })}
+                      placeholder="Ex: Médecine générale, Cardiologie..."
+                      className={errors.specialty ? "border-destructive" : ""}
                     />
-                    {errors.email && <p className="text-xs text-destructive">{errors.email}</p>}
+                    {errors.specialty && <p className="text-xs text-destructive">{errors.specialty}</p>}
                   </div>
                 </div>
 
@@ -556,29 +587,7 @@ export default function CabinetsPage() {
                   {errors.address && <p className="text-xs text-destructive">{errors.address}</p>}
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="city">Ville *</Label>
-                    <Input
-                      id="city"
-                      value={formData.city}
-                      onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                      className={errors.city ? "border-destructive" : ""}
-                    />
-                    {errors.city && <p className="text-xs text-destructive">{errors.city}</p>}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="postalCode">Code Postal *</Label>
-                    <Input
-                      id="postalCode"
-                      value={formData.postalCode}
-                      onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })}
-                      className={errors.postalCode ? "border-destructive" : ""}
-                    />
-                    {errors.postalCode && <p className="text-xs text-destructive">{errors.postalCode}</p>}
-                  </div>
-
+                <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="phone">Téléphone *</Label>
                     <Input
@@ -589,52 +598,44 @@ export default function CabinetsPage() {
                     />
                     {errors.phone && <p className="text-xs text-destructive">{errors.phone}</p>}
                   </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="logoUrl">URL du Logo</Label>
+                    <Input
+                      id="logoUrl"
+                      value={formData.logoUrl}
+                      onChange={(e) => setFormData({ ...formData, logoUrl: e.target.value })}
+                      placeholder="https://..."
+                    />
+                  </div>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-4">
+                <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="status">Statut</Label>
                     <select
                       id="status"
                       value={formData.status}
-                      onChange={(e) => setFormData({ ...formData, status: e.target.value as "Actif" | "Inactif" })}
+                      onChange={(e) => setFormData({ ...formData, status: e.target.value as ClinicStatus })}
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
                     >
-                      <option value="Actif">Actif</option>
-                      <option value="Inactif">Inactif</option>
+                      <option value="ACTIVE">Actif</option>
+                      <option value="INACTIVE">Inactif</option>
+                      <option value="SUSPENDED">Suspendu</option>
                     </select>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="plan">Plan d'abonnement</Label>
-                    <select
-                      id="plan"
-                      value={formData.subscriptionPlan}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          subscriptionPlan: e.target.value as "Basic" | "Premium" | "Enterprise",
-                        })
-                      }
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                    >
-                      <option value="Basic">Basic</option>
-                      <option value="Premium">Premium</option>
-                      <option value="Enterprise">Enterprise</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="endDate">Fin d'abonnement *</Label>
+                    <Label htmlFor="serviceEndDate">Date de fin de service *</Label>
                     <Input
-                      id="endDate"
+                      id="serviceEndDate"
                       type="date"
-                      value={formData.subscriptionEndDate}
-                      onChange={(e) => setFormData({ ...formData, subscriptionEndDate: e.target.value })}
-                      className={errors.subscriptionEndDate ? "border-destructive" : ""}
+                      value={formData.serviceEndDate}
+                      onChange={(e) => setFormData({ ...formData, serviceEndDate: e.target.value })}
+                      className={errors.serviceEndDate ? "border-destructive" : ""}
                     />
-                    {errors.subscriptionEndDate && (
-                      <p className="text-xs text-destructive">{errors.subscriptionEndDate}</p>
+                    {errors.serviceEndDate && (
+                      <p className="text-xs text-destructive">{errors.serviceEndDate}</p>
                     )}
                   </div>
                 </div>
@@ -652,164 +653,50 @@ export default function CabinetsPage() {
           </div>
         )}
 
-        {showUsersDialog && selectedCabinet && (
+        {showDetailsDialog && selectedClinic && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <Card className="glass-card p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <Card className="glass-card p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h2 className="text-2xl font-bold">{selectedCabinet.name}</h2>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {selectedCabinet.city}, {selectedCabinet.country}
-                  </p>
+                  <h2 className="text-2xl font-bold">{selectedClinic.name}</h2>
+                  <Badge variant="outline" className={getStatusColor(selectedClinic.status)}>
+                    {getStatusLabel(selectedClinic.status)}
+                  </Badge>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowAssignDialog(true)}
-                    className="gap-2 glow-primary"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    Assigner
-                  </Button>
-                  <Button variant="ghost" size="icon" onClick={() => setShowUsersDialog(false)}>
-                    <X className="w-4 h-4" />
-                  </Button>
-                </div>
+                <Button variant="ghost" size="icon" onClick={() => setShowDetailsDialog(false)}>
+                  <X className="w-4 h-4" />
+                </Button>
               </div>
 
               <div className="grid gap-4 mb-6">
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <Label className="text-muted-foreground">Adresse</Label>
-                    <p className="text-sm">{selectedCabinet.address}</p>
+                    <Label className="text-muted-foreground">Spécialité</Label>
+                    <p className="text-sm font-medium">{selectedClinic.specialty}</p>
                   </div>
                   <div className="space-y-1">
                     <Label className="text-muted-foreground">Téléphone</Label>
-                    <p className="text-sm">{selectedCabinet.phone}</p>
+                    <p className="text-sm">{selectedClinic.phone}</p>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-muted-foreground">Email</Label>
-                    <p className="text-sm">{selectedCabinet.email}</p>
+                    <Label className="text-muted-foreground">Adresse</Label>
+                    <p className="text-sm">{selectedClinic.address}</p>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-muted-foreground">Plan</Label>
-                    <Badge className={getPlanColor(selectedCabinet.subscriptionPlan)}>
-                      {selectedCabinet.subscriptionPlan}
-                    </Badge>
+                    <Label className="text-muted-foreground">Date de fin de service</Label>
+                    <p className="text-sm">{new Date(selectedClinic.serviceEndDate).toLocaleDateString("fr-FR")}</p>
                   </div>
                 </div>
               </div>
 
-              <div className="border-t border-border/50 pt-6">
-                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                  <Users className="w-5 h-5 text-primary" />
-                  Équipe du Cabinet ({getUsersForCabinet(selectedCabinet.id).length})
-                </h3>
-
-                <div className="space-y-3">
-                  {getUsersForCabinet(selectedCabinet.id).length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <Users className="w-12 h-12 mx-auto mb-2 opacity-30" />
-                      <p>Aucun utilisateur assigné à ce cabinet</p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowAssignDialog(true)}
-                        className="mt-4 gap-2"
-                      >
-                        <UserPlus className="w-4 h-4" />
-                        Assigner des utilisateurs
-                      </Button>
-                    </div>
-                  ) : (
-                    getUsersForCabinet(selectedCabinet.id).map((user) => (
-                      <Card key={user.id} className="glass-card p-4 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <Avatar className="w-12 h-12 border-2 border-primary/20">
-                            <AvatarFallback className="bg-primary/10 text-primary font-bold">
-                              {user.name
-                                .split(" ")
-                                .map((n) => n[0])
-                                .join("")}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="font-semibold">{user.name}</p>
-                            <p className="text-sm text-muted-foreground">{user.email}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className={getRoleBadgeColor(user.role)}>
-                            {user.role === "medecin" ? "Médecin" : "Secrétaire"}
-                          </Badge>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleUnassignUser(user.id)}
-                            className="text-destructive hover:bg-destructive/10"
-                          >
-                            <UserMinus className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </Card>
-                    ))
-                  )}
-                </div>
-              </div>
-            </Card>
-          </div>
-        )}
-
-        {showAssignDialog && selectedCabinet && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <Card className="glass-card p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="text-xl font-bold">Assigner des utilisateurs</h2>
-                  <p className="text-sm text-muted-foreground">Sélectionnez les utilisateurs à ajouter au cabinet</p>
-                </div>
-                <Button variant="ghost" size="icon" onClick={() => setShowAssignDialog(false)}>
-                  <X className="w-4 h-4" />
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowDetailsDialog(false)}>
+                  Fermer
                 </Button>
-              </div>
-
-              <div className="space-y-3">
-                {getAvailableUsers().length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Users className="w-12 h-12 mx-auto mb-2 opacity-30" />
-                    <p>Aucun utilisateur disponible</p>
-                    <p className="text-sm mt-1">Tous les utilisateurs sont déjà assignés à un cabinet</p>
-                  </div>
-                ) : (
-                  getAvailableUsers().map((user) => (
-                    <Card key={user.id} className="glass-card p-4 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Avatar className="w-12 h-12 border-2 border-primary/20">
-                          <AvatarFallback className="bg-primary/10 text-primary font-bold">
-                            {user.name
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="font-semibold">{user.name}</p>
-                          <p className="text-sm text-muted-foreground">{user.email}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={getRoleBadgeColor(user.role)}>
-                          {user.role === "medecin" ? "Médecin" : "Secrétaire"}
-                        </Badge>
-                        <Button variant="outline" size="sm" onClick={() => handleAssignUser(user.id)} className="gap-2">
-                          <UserPlus className="w-4 h-4" />
-                          Assigner
-                        </Button>
-                      </div>
-                    </Card>
-                  ))
-                )}
+                <Button onClick={() => { setShowDetailsDialog(false); handleEdit(selectedClinic); }} className="glow-primary">
+                  <Edit className="w-4 h-4 mr-2" />
+                  Modifier
+                </Button>
               </div>
             </Card>
           </div>

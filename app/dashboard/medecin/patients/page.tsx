@@ -7,19 +7,8 @@ import { Badge } from "@/components/ui/badge"
 import { Search, FileText, Calendar, Phone, Loader2 } from "lucide-react"
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { patientService } from "@/lib/services/patient.service"
+import { patientApi, Patient } from "@/api/patient.api"
 import { useToast } from "@/hooks/use-toast"
-
-interface Patient {
-  id: number
-  name: string
-  cin: string
-  dateOfBirth: string
-  phone: string
-  mutuelle?: string
-  status: string
-  consultations?: any[]
-}
 
 export default function PatientsPage() {
   const [searchQuery, setSearchQuery] = useState("")
@@ -31,7 +20,7 @@ export default function PatientsPage() {
     const fetchPatients = async () => {
       try {
         console.log("[v0] Fetching patients from API...")
-        const response = await patientService.getAll()
+        const response = await patientApi.getAll()
         console.log("[v0] Patients received:", response.data)
         setPatients(response.data)
       } catch (error: any) {
@@ -51,9 +40,9 @@ export default function PatientsPage() {
 
   const filteredPatients = patients.filter(
     (patient) =>
-      patient.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      `${patient.nom} ${patient.prenom}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
       patient.cin.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      patient.mutuelle?.toLowerCase().includes(searchQuery.toLowerCase()),
+      patient.typeMutuelle?.toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
   const getStatusColor = (status: string) => {
@@ -102,7 +91,7 @@ export default function PatientsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Patients Actifs</p>
-                    <h3 className="text-2xl font-bold mt-2">{patients.filter((p) => p.status === "Actif").length}</h3>
+                    <h3 className="text-2xl font-bold mt-2">{patients.length}</h3>
                   </div>
                   <div className="p-3 rounded-xl bg-success/10 border border-success/20">
                     <Calendar className="w-6 h-6 text-success" />
@@ -144,39 +133,36 @@ export default function PatientsPage() {
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-12 rounded-full bg-primary/10 border-2 border-primary/20 flex items-center justify-center group-hover:scale-110 transition-transform">
                           <span className="text-lg font-bold text-primary">
-                            {patient.name
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")}
+                            {patient.nom[0]}{patient.prenom[0]}
                           </span>
                         </div>
                         <div>
-                          <h3 className="font-semibold group-hover:text-primary transition-colors">{patient.name}</h3>
+                          <h3 className="font-semibold group-hover:text-primary transition-colors">{patient.nom} {patient.prenom}</h3>
                           <p className="text-xs text-muted-foreground">CIN: {patient.cin}</p>
                         </div>
                       </div>
-                      <Badge className={getStatusColor(patient.status)}>{patient.status}</Badge>
+                      <Badge className="bg-success/10 text-success border-success/20">Actif</Badge>
                     </div>
 
                     <div className="space-y-2 text-sm">
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Calendar className="w-4 h-4" />
-                        <span>{patient.dateOfBirth}</span>
+                        <span>{patient.dateNaissance}</span>
                       </div>
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Phone className="w-4 h-4" />
-                        <span>{patient.phone}</span>
+                        <span>{patient.numTel}</span>
                       </div>
-                      {patient.mutuelle && (
+                      {patient.typeMutuelle && (
                         <div className="flex items-center gap-2 text-muted-foreground">
                           <FileText className="w-4 h-4" />
-                          <span>{patient.mutuelle}</span>
+                          <span>{patient.typeMutuelle}</span>
                         </div>
                       )}
                     </div>
 
                     <div className="mt-4 pt-4 border-t border-border/50 flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{patient.consultations?.length || 0} consultations</span>
+                      <span>Voir le dossier</span>
                       <span className="text-primary group-hover:translate-x-1 transition-transform">
                         Voir dossier →
                       </span>

@@ -6,6 +6,7 @@ import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/lib/auth-context"
 import { NotificationsProvider } from "@/lib/notifications-context"
+import { QueryProvider } from "@/components/providers/query-provider"
 import { Toaster } from "@/components/ui/toaster"
 
 const _geist = Geist({ subsets: ["latin"] })
@@ -42,14 +43,16 @@ export default function RootLayout({
   return (
     <html lang="fr" suppressHydrationWarning>
       <body className={`font-sans antialiased`}>
-        <ThemeProvider defaultTheme="dark">
-          <AuthProvider>
-            <NotificationsProvider>
-              {children}
-              <Toaster />
-            </NotificationsProvider>
-          </AuthProvider>
-        </ThemeProvider>
+        <QueryProvider>
+          <ThemeProvider defaultTheme="dark">
+            <AuthProvider>
+              <NotificationsProvider>
+                {children}
+                <Toaster />
+              </NotificationsProvider>
+            </AuthProvider>
+          </ThemeProvider>
+        </QueryProvider>
         <Analytics />
       </body>
     </html>

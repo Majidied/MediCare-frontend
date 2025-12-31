@@ -10,11 +10,12 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useNotifications } from "@/lib/notifications-context"
+import { consultationApi, type ConsultationSummaryDTO } from "@/api/consultation.api"
+import { useQuery } from "@tanstack/react-query"
 import {
   User,
   Calendar,
   Phone,
-  Mail,
   MapPin,
   FileText,
   Plus,
@@ -26,45 +27,111 @@ import {
   ClipboardList,
   Pill,
   CheckCircle,
+  Loader2,
 } from "lucide-react"
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { MOCK_PATIENTS, MOCK_MEDICATIONS, type Patient, type Consultation, type Ordonnance } from "@/lib/mock-data"
+import { useEffect, useState } from "react"
+import { useParams } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
+import { usePatient } from "@/hooks/use-patient"
+import { type Patient } from "@/api/patient.api"
+import { MOCK_MEDICATIONS, type Ordonnance } from "@/lib/mock-data"
 
-export default function PatientDetailsPage({ params }: { params: { id: string } }) {
-  const router = useRouter()
+export default function PatientDetailsPage() {
+  type ConsultationViewModel = ConsultationSummaryDTO & {
+    examenClinique?: string
+    examenSupplementaire?: string
+    traitement?: string
+    observations?: string
+    status?: string
+    ordonnance?: Ordonnance
+  }
+
+  const params = useParams<{ id: string }>()
+  const patientId = typeof params?.id === "string" ? Number(params.id) : Number.NaN
+  const isValidPatientId = Number.isFinite(patientId) && patientId > 0
   const { toast } = useToast()
   const { addBillingNotification } = useNotifications()
+  const { data: patientData, isLoading, isError, error } = usePatient(isValidPatientId ? patientId : 0)
+  const {
+    data: consultationsData,
+    isLoading: consultationsLoading,
+    isError: consultationsError,
+    error: consultationsErrorObj,
+  } = useQuery({
+    queryKey: ["consultations", "patient", patientId],
+    queryFn: async () => {
+      const { data } = await consultationApi.getByPatient(patientId)
+      return data
+    },
+    enabled: isValidPatientId,
+  })
   const [patient, setPatient] = useState<Patient | null>(null)
+  const [consultations, setConsultations] = useState<ConsultationViewModel[]>([])
   const [consultationDialogOpen, setConsultationDialogOpen] = useState(false)
   const [ordonnanceDialogOpen, setOrdonnanceDialogOpen] = useState(false)
   const [editConsultationId, setEditConsultationId] = useState<string | null>(null)
   const [isEditMode, setIsEditMode] = useState(false)
   const [newConsultation, setNewConsultation] = useState({
-    date: new Date().toISOString().split("T")[0],
-    motif: "",
+    dateConsultation: new Date().toISOString(),
+    type: "",
     diagnostic: "",
     traitement: "",
-    notes: "",
+    observations: "",
   })
   const [selectedMedications, setSelectedMedications] = useState<
     Array<{ medicationId: string; posologie: string; duree: string }>
   >([])
 
   useEffect(() => {
-    const foundPatient = MOCK_PATIENTS.find((p) => p.id === params.id)
-    if (!foundPatient) {
-      router.push("/dashboard/medecin/patients")
-    } else {
-      setPatient(foundPatient)
+    if (patientData) {
+      setPatient({ ...patientData })
     }
-  }, [params.id, router])
+  }, [patientData])
 
-  if (!patient) return null
+  useEffect(() => {
+    if (consultationsData) {
+      setConsultations(consultationsData)
+    }
+  }, [consultationsData])
+
+  if (!isValidPatientId) {
+    return (
+      <DashboardLayout>
+        <Card className="p-6 flex items-center gap-2 text-destructive">
+          <AlertCircle className="w-5 h-5" />
+          <span>Identifiant patient invalide</span>
+        </Card>
+      </DashboardLayout>
+    )
+  }
+
+  if (isLoading || consultationsLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+          <span className="ml-2 text-muted-foreground">Chargement du patient...</span>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (isError || consultationsError || !patient) {
+    return (
+      <DashboardLayout>
+        <Card className="p-6 flex items-center gap-2 text-destructive">
+          <AlertCircle className="w-5 h-5" />
+          <span>
+            Erreur :
+            {(error as any)?.message || (consultationsErrorObj as any)?.message || "Impossible de charger le patient"}
+          </span>
+        </Card>
+      </DashboardLayout>
+    )
+  }
 
   const handleAddConsultation = () => {
-    if (!newConsultation.motif || !newConsultation.diagnostic) {
+    if (!newConsultation.type || !newConsultation.diagnostic) {
       toast({
         title: "Erreur",
         description: "Veuillez remplir tous les champs obligatoires",
@@ -74,34 +141,40 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
     }
 
     if (isEditMode && editConsultationId) {
-      const consultationIndex = patient.consultations?.findIndex((c) => c.id === editConsultationId)
-      if (consultationIndex !== undefined && consultationIndex !== -1 && patient.consultations) {
-        patient.consultations[consultationIndex] = {
-          ...patient.consultations[consultationIndex],
-          date: newConsultation.date,
-          motif: newConsultation.motif,
-          diagnostic: newConsultation.diagnostic,
-          traitement: newConsultation.traitement,
-          notes: newConsultation.notes,
-        }
-      }
+      setConsultations((prev) =>
+        prev.map((c) =>
+          c.id === Number(editConsultationId)
+            ? {
+                ...c,
+                dateConsultation: newConsultation.dateConsultation,
+                type: newConsultation.type,
+                diagnostic: newConsultation.diagnostic,
+                traitement: newConsultation.traitement,
+                observations: newConsultation.observations,
+              }
+            : c,
+        ),
+      )
 
       toast({
         title: "Consultation modifiée",
         description: "La consultation a été mise à jour avec succès",
       })
     } else {
-      const consultation: Consultation = {
-        id: Date.now().toString(),
-        date: newConsultation.date,
-        motif: newConsultation.motif,
+      const consultation = {
+        id: Date.now(),
+        rendezVousId: 0,
+        patientId,
+        medecinId: 0,
+        cabinetId: 0,
+        type: newConsultation.type,
+        dateConsultation: newConsultation.dateConsultation,
         diagnostic: newConsultation.diagnostic,
         traitement: newConsultation.traitement,
-        notes: newConsultation.notes,
+        observations: newConsultation.observations,
       }
 
-      if (!patient.consultations) patient.consultations = []
-      patient.consultations.push(consultation)
+      setConsultations((prev) => [...prev, consultation])
 
       toast({
         title: "Consultation ajoutée",
@@ -113,15 +186,15 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
     setIsEditMode(false)
     setEditConsultationId(null)
     setNewConsultation({
-      date: new Date().toISOString().split("T")[0],
-      motif: "",
+      dateConsultation: new Date().toISOString(),
+      type: "",
       diagnostic: "",
       traitement: "",
-      notes: "",
+      observations: "",
     })
   }
 
-  const handleAddOrdonnance = (consultationId: string) => {
+  const handleAddOrdonnance = (consultationId: number) => {
     if (selectedMedications.length === 0) {
       toast({
         title: "Erreur",
@@ -131,12 +204,12 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
       return
     }
 
-    const consultation = patient.consultations?.find((c) => c.id === consultationId)
+    const consultation = consultations.find((c) => c.id === consultationId)
     if (!consultation) return
 
     const ordonnance: Ordonnance = {
       id: Date.now().toString(),
-      consultationId,
+      consultationId: String(consultationId),
       date: new Date().toISOString().split("T")[0],
       medications: selectedMedications.map((med) => {
         const medication = MOCK_MEDICATIONS.find((m) => m.id === med.medicationId)
@@ -149,7 +222,7 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
       }),
     }
 
-    consultation.ordonnance = ordonnance
+    setConsultations((prev) => prev.map((c) => (c.id === consultationId ? { ...c, ordonnance } : c)))
     setOrdonnanceDialogOpen(false)
     setSelectedMedications([])
 
@@ -159,9 +232,9 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
     })
   }
 
-  const handleDeleteConsultation = (consultationId: string) => {
+  const handleDeleteConsultation = (consultationId: number) => {
     if (confirm("Êtes-vous sûr de vouloir supprimer cette consultation ?")) {
-      patient.consultations = patient.consultations?.filter((c) => c.id !== consultationId)
+      setConsultations((prev) => prev.filter((c) => c.id !== consultationId))
       toast({
         title: "Consultation supprimée",
         description: "La consultation a été supprimée avec succès",
@@ -190,20 +263,20 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
     setSelectedMedications(updated)
   }
 
-  const handleEditConsultation = (consultation: Consultation) => {
+  const handleEditConsultation = (consultation: ConsultationViewModel) => {
     setIsEditMode(true)
-    setEditConsultationId(consultation.id)
+    setEditConsultationId(String(consultation.id))
     setNewConsultation({
-      date: consultation.date,
-      motif: consultation.motif,
+      dateConsultation: consultation.dateConsultation,
+      type: consultation.type || "",
       diagnostic: consultation.diagnostic || "",
       traitement: consultation.traitement || "",
-      notes: consultation.notes || "",
+      observations: consultation.observations || "",
     })
     setConsultationDialogOpen(true)
   }
 
-  const handleEndConsultation = (consultation: Consultation) => {
+  const handleEndConsultation = (consultation: ConsultationViewModel) => {
     if (!consultation.diagnostic || !consultation.traitement) {
       toast({
         title: "Erreur",
@@ -213,26 +286,22 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
       return
     }
 
-    const consultationIndex = patient.consultations?.findIndex((c) => c.id === consultation.id)
-    if (consultationIndex !== undefined && consultationIndex !== -1 && patient.consultations) {
-      patient.consultations[consultationIndex] = {
-        ...patient.consultations[consultationIndex],
-        status: "terminee",
-      }
-    }
+    setConsultations((prev) => prev.map((c) => (c.id === consultation.id ? { ...c, status: "terminee" } : c)))
 
     addBillingNotification({
       id: `billing-${Date.now()}`,
       type: "billing",
       consultationId: consultation.id,
       patientId: patient.id,
-      patientName: patient.name,
-      patientAge: new Date().getFullYear() - new Date(patient.dateOfBirth).getFullYear(),
-      consultationDate: consultation.date,
-      motif: consultation.motif,
+      patientName: [patient.nom, patient.prenom].filter(Boolean).join(" ").trim(),
+      patientAge: patient.dateNaissance
+        ? new Date().getFullYear() - new Date(patient.dateNaissance).getFullYear()
+        : undefined,
+      consultationDate: consultation.dateConsultation,
+      motif: consultation.type,
       diagnostic: consultation.diagnostic,
       traitement: consultation.traitement,
-      notes: consultation.notes,
+      notes: consultation.observations,
       status: "pending",
       sentBy: "Dr. Sarah Martin",
       sentAt: "À l'instant",
@@ -252,14 +321,14 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 rounded-full bg-primary/10 border-2 border-primary/20 flex items-center justify-center">
               <span className="text-2xl font-bold text-primary">
-                {patient.name
-                  .split(" ")
+                {[patient.nom, patient.prenom]
+                  .filter(Boolean)
                   .map((n) => n[0])
                   .join("")}
               </span>
             </div>
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">{patient.name}</h1>
+              <h1 className="text-3xl font-bold tracking-tight">{patient.nom} {patient.prenom}</h1>
               <p className="text-muted-foreground">Dossier médical complet</p>
             </div>
           </div>
@@ -296,7 +365,7 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Date de naissance</p>
-                <p className="font-medium">{patient.dateOfBirth}</p>
+                <p className="font-medium">{patient.dateNaissance}</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -305,16 +374,7 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Téléphone</p>
-                <p className="font-medium">{patient.phone}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-warning/10 border border-warning/20">
-                <Mail className="w-4 h-4 text-warning" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Email</p>
-                <p className="font-medium">{patient.email}</p>
+                <p className="font-medium">{patient.numTel}</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -323,17 +383,17 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Adresse</p>
-                <p className="font-medium">{patient.address}</p>
+                <p className="font-medium">{patient.adresse?.rue} {patient.adresse?.ville}</p>
               </div>
             </div>
-            {patient.mutuelle && (
+            {patient.typeMutuelle && (
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-primary/10 border border-primary/20">
                   <Activity className="w-4 h-4 text-primary" />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Mutuelle</p>
-                  <p className="font-medium">{patient.mutuelle}</p>
+                  <p className="font-medium">{patient.typeMutuelle}</p>
                 </div>
               </div>
             )}
@@ -345,7 +405,7 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <ClipboardList className="w-5 h-5 text-primary" />
-              Consultations ({patient.consultations?.length || 0})
+              Consultations ({consultations.length})
             </h2>
             <Dialog
               open={consultationDialogOpen}
@@ -355,11 +415,11 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
                   setIsEditMode(false)
                   setEditConsultationId(null)
                   setNewConsultation({
-                    date: new Date().toISOString().split("T")[0],
-                    motif: "",
+                    dateConsultation: new Date().toISOString(),
+                    type: "",
                     diagnostic: "",
                     traitement: "",
-                    notes: "",
+                    observations: "",
                   })
                 }
               }}
@@ -380,18 +440,23 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
                     <Input
                       id="date"
                       type="date"
-                      value={newConsultation.date}
-                      onChange={(e) => setNewConsultation({ ...newConsultation, date: e.target.value })}
+                      value={newConsultation.dateConsultation.split("T")[0]}
+                      onChange={(e) =>
+                        setNewConsultation({
+                          ...newConsultation,
+                          dateConsultation: new Date(e.target.value).toISOString(),
+                        })
+                      }
                       className="bg-background/50"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="motif">Motif de consultation *</Label>
+                    <Label htmlFor="type">Type *</Label>
                     <Input
-                      id="motif"
-                      value={newConsultation.motif}
-                      onChange={(e) => setNewConsultation({ ...newConsultation, motif: e.target.value })}
-                      placeholder="Ex: Douleurs abdominales"
+                      id="type"
+                      value={newConsultation.type}
+                      onChange={(e) => setNewConsultation({ ...newConsultation, type: e.target.value })}
+                      placeholder="Ex: Consultation de suivi"
                       className="bg-background/50"
                     />
                   </div>
@@ -421,8 +486,8 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
                     <Label htmlFor="notes">Notes</Label>
                     <Textarea
                       id="notes"
-                      value={newConsultation.notes}
-                      onChange={(e) => setNewConsultation({ ...newConsultation, notes: e.target.value })}
+                      value={newConsultation.observations}
+                      onChange={(e) => setNewConsultation({ ...newConsultation, observations: e.target.value })}
                       placeholder="Notes supplémentaires"
                       className="bg-background/50"
                       rows={2}
@@ -441,9 +506,9 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
             </Dialog>
           </div>
 
-          {patient.consultations && patient.consultations.length > 0 ? (
+          {consultations.length > 0 ? (
             <div className="space-y-4">
-              {patient.consultations.map((consultation) => (
+              {consultations.map((consultation) => (
                 <Card
                   key={consultation.id}
                   className="bg-card/50 backdrop-blur-xl border-primary/20 hover:border-primary/40 transition-all"
@@ -452,12 +517,12 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex items-center gap-2">
                         <Badge variant="outline" className="text-xs">
-                          {consultation.date}
+                          {consultation.dateConsultation}
                         </Badge>
-                        {consultation.status === "terminee" && (
+                          {consultation.status === "terminee" && (
                           <Badge className="text-xs bg-green-500/20 text-green-400 border-green-500/30">Terminée</Badge>
                         )}
-                        <h3 className="font-semibold">{consultation.motif}</h3>
+                        <h3 className="font-semibold">{consultation.type || "-"}</h3>
                       </div>
                       <div className="flex gap-2">
                         {consultation.status !== "terminee" && (
@@ -494,10 +559,10 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
                           <p>{consultation.traitement}</p>
                         </div>
                       )}
-                      {consultation.notes && (
+                      {consultation.observations && (
                         <div>
                           <p className="text-muted-foreground">Notes:</p>
-                          <p className="text-muted-foreground text-xs">{consultation.notes}</p>
+                          <p className="text-muted-foreground text-xs">{consultation.observations}</p>
                         </div>
                       )}
                     </div>
@@ -534,10 +599,10 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
                       </div>
                     ) : (
                       <Dialog
-                        open={ordonnanceDialogOpen && editConsultationId === consultation.id}
+                        open={ordonnanceDialogOpen && editConsultationId === String(consultation.id)}
                         onOpenChange={(open) => {
                           setOrdonnanceDialogOpen(open)
-                          if (open) setEditConsultationId(consultation.id)
+                          if (open) setEditConsultationId(String(consultation.id))
                         }}
                       >
                         <DialogTrigger asChild>
@@ -545,7 +610,7 @@ export default function PatientDetailsPage({ params }: { params: { id: string } 
                             variant="outline"
                             size="sm"
                             className="mt-4 bg-transparent"
-                            onClick={() => setEditConsultationId(consultation.id)}
+                            onClick={() => setEditConsultationId(String(consultation.id))}
                           >
                             <Plus className="w-4 h-4 mr-2" />
                             Créer une ordonnance

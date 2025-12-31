@@ -27,7 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
 
   useEffect(() => {
-    console.log("[v0] Initialisation de Keycloak...")
+    console.log("Initialisation de Keycloak...")
 
     keycloak
       .init({
@@ -36,10 +36,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         pkceMethod: "S256",
       })
       .then((authenticated) => {
-        console.log("[v0] Keycloak initialise. Authentifie:", authenticated)
+        console.log("Keycloak initialise. Authentifie:", authenticated)
 
         if (authenticated && keycloak.tokenParsed) {
-          console.log("[v0] Token detecte:", keycloak.tokenParsed)
+          console.log("Token detecte:", keycloak.tokenParsed)
 
           const roles = keycloak.tokenParsed.realm_access?.roles || []
           const userRole = roles.includes("ADMIN") ? "admin" : roles.includes("MEDECIN") ? "medecin" : "secretaire"
@@ -53,14 +53,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           if (keycloak.token) {
             localStorage.setItem("keycloak_token", keycloak.token)
-            console.log("[v0] Token sauvegarde")
+            console.log("Token sauvegarde")
           }
         }
 
         setIsLoading(false)
       })
       .catch((error) => {
-        console.error("[v0] Erreur initialisation Keycloak:", error)
+        console.error("Erreur initialisation Keycloak:", error)
         setIsLoading(false)
       })
 
@@ -69,12 +69,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .updateToken(70)
         .then((refreshed) => {
           if (refreshed && keycloak.token) {
-            console.log("[v0] Token rafraichi")
+            console.log("Token rafraichi")
             localStorage.setItem("keycloak_token", keycloak.token)
           }
         })
         .catch(() => {
-          console.error("[v0] Impossible de rafraichir le token")
+          console.error("Impossible de rafraichir le token")
         })
     }, 60000)
 
@@ -82,16 +82,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = async (email: string, password: string) => {
-    console.log("[v0] Tentative de connexion pour:", email)
+    console.log("Tentative de connexion pour:", email)
 
     try {
       if (keycloak.authenticated) {
-        console.log("[v0] Nettoyage de la session Keycloak precedente...")
+        console.log("Nettoyage de la session Keycloak precedente...")
         keycloak.clearToken()
       }
 
       const tokenUrl = `${keycloak.authServerUrl}/realms/${keycloak.realm}/protocol/openid-connect/token`
-      console.log("[v0] URL token:", tokenUrl)
+      console.log("URL token:", tokenUrl)
 
       const response = await fetch(tokenUrl, {
         method: "POST",
@@ -106,16 +106,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }),
       })
 
-      console.log("[v0] Reponse Keycloak:", response.status)
+      console.log("Reponse Keycloak:", response.status)
 
       if (!response.ok) {
         const errorData = await response.json()
-        console.error("[v0] Erreur login:", errorData)
+        console.error("Erreur login:", errorData)
         throw new Error(errorData.error_description || "Email ou mot de passe incorrect")
       }
 
       const data = await response.json()
-      console.log("[v0] Token recu")
+      console.log("Token recu")
 
       keycloak.token = data.access_token
       keycloak.refreshToken = data.refresh_token
@@ -124,21 +124,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const parsedToken = parseJwt(data.access_token)
 
       if (!parsedToken) {
-        console.error("[v0] Erreur: Impossible de parser le token")
+        console.error("Erreur: Impossible de parser le token")
         throw new Error("Token not available after login.")
       }
 
       keycloak.tokenParsed = parsedToken
       keycloak.authenticated = true
-      console.log("[v0] Token parse avec succes:", keycloak.tokenParsed)
+      console.log("Token parse avec succes:", keycloak.tokenParsed)
 
       localStorage.setItem("keycloak_token", data.access_token)
       localStorage.setItem("keycloak_refresh_token", data.refresh_token)
 
       const roles = parsedToken.realm_access?.roles || []
-      console.log("[v0] Roles extraits:", roles)
+      console.log("Roles extraits:", roles)
 
-      const userRole = roles.includes("ADMIN") ? "admin" : roles.includes("MEDECIN") ? "medecin" : "secretaire"
+      const userRole = roles.includes("ADMIN") ? "admin" : roles.includes("MEDCIN") ? "medecin" : "secretaire"
 
       const newUser = {
         id: parsedToken.sub || "",
@@ -147,19 +147,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role: userRole,
       }
 
-      console.log("[v0] Utilisateur cree:", newUser)
+      console.log("Utilisateur cree:", newUser)
       setUser(newUser)
 
-      console.log("[v0] Redirection vers /dashboard/" + userRole)
+      console.log("Redirection vers /dashboard/" + userRole)
       router.push(`/dashboard/${userRole}`)
     } catch (error: any) {
-      console.error("[v0] Erreur lors de la connexion: Error:", error.message)
+      console.error("Erreur lors de la connexion: Error:", error.message)
       throw error
     }
   }
 
   const logout = async () => {
-    console.log("[v0] Deconnexion...")
+    console.log("Deconnexion...")
 
     setUser(null)
     localStorage.removeItem("keycloak_token")
@@ -173,14 +173,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           redirectUri: typeof window !== "undefined" ? window.location.origin + "/login" : undefined,
         })
       } catch (error) {
-        console.error("[v0] Erreur lors de la deconnexion Keycloak:", error)
+        console.error("Erreur lors de la deconnexion Keycloak:", error)
         router.push("/login")
       }
     } else {
       router.push("/login")
     }
 
-    console.log("[v0] Deconnexion reussie")
+    console.log("Deconnexion reussie")
   }
 
   return (
@@ -200,7 +200,7 @@ export function useAuth() {
 
 function parseJwt(token: string) {
   try {
-    console.log("[v0] Parsing JWT token...")
+    console.log("Parsing JWT token...")
     const base64Url = token.split(".")[1]
     const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/")
     const jsonPayload = decodeURIComponent(
@@ -210,10 +210,10 @@ function parseJwt(token: string) {
         .join(""),
     )
     const parsed = JSON.parse(jsonPayload)
-    console.log("[v0] JWT parse avec succes")
+    console.log("JWT parse avec succes")
     return parsed
   } catch (error) {
-    console.error("[v0] Erreur parsing JWT:", error)
+    console.error("Erreur parsing JWT:", error)
     return null
   }
 }

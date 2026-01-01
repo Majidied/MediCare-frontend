@@ -4,6 +4,22 @@ import { createContext, useContext, useState, useEffect, type ReactNode } from "
 import { useRouter } from "next/navigation"
 import keycloak from "./keycloak"
 
+// Keycloak config constants - literal access for Next.js bundler compatibility
+const KEYCLOAK_URL =
+  (process.env.NEXT_PUBLIC_KEYCLOAK_URL && process.env.NEXT_PUBLIC_KEYCLOAK_URL !== "undefined")
+    ? process.env.NEXT_PUBLIC_KEYCLOAK_URL
+    : 'http://3.84.72.92:8080'
+
+const KEYCLOAK_REALM =
+  (process.env.NEXT_PUBLIC_KEYCLOAK_REALM && process.env.NEXT_PUBLIC_KEYCLOAK_REALM !== "undefined")
+    ? process.env.NEXT_PUBLIC_KEYCLOAK_REALM
+    : 'cabinetX-microservice-realm'
+
+const KEYCLOAK_CLIENT_ID =
+  (process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID && process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID !== "undefined")
+    ? process.env.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID
+    : 'cabinetx-client'
+
 export type User = {
   id: string
   email: string
@@ -29,20 +45,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     console.log("Initialisation de Keycloak...")
 
+    const storedToken = localStorage.getItem("keycloak_token")
+    const storedRefreshToken = localStorage.getItem("keycloak_refresh_token")
+
+    const initOptions: any = {
+      onLoad: "check-sso",
+      checkLoginIframe: false,
+      pkceMethod: "S256",
+    }
+
+    // If we have stored tokens, use them to initialize Keycloak
+    if (storedToken) {
+      console.log("Token trouvé dans localStorage, tentative de restauration...")
+      const parsed = parseJwt(storedToken)
+
+      if (parsed && parsed.exp && parsed.exp * 1000 > Date.now()) {
+        initOptions.token = storedToken
+        initOptions.refreshToken = storedRefreshToken || undefined
+      } else if (storedRefreshToken) {
+        console.log("Token expiré, utilisation du refresh token...")
+        initOptions.token = undefined
+        initOptions.refreshToken = storedRefreshToken
+      }
+    }
+
     keycloak
-      .init({
-        onLoad: "check-sso",
-        checkLoginIframe: false,
-        pkceMethod: "S256",
-      })
+      .init(initOptions)
       .then((authenticated) => {
         console.log("Keycloak initialise. Authentifie:", authenticated)
 
         if (authenticated && keycloak.tokenParsed) {
-          console.log("Token detecte:", keycloak.tokenParsed)
+          console.log("Session active:", keycloak.tokenParsed.preferred_username)
 
           const roles = keycloak.tokenParsed.realm_access?.roles || []
-          const userRole = roles.includes("ADMIN") ? "admin" : roles.includes("MEDECIN") ? "medecin" : "secretaire"
+          const userRole: "admin" | "medecin" | "secretaire" = roles.includes("ADMIN") ? "admin" : roles.includes("MEDECIN") ? "medecin" : "secretaire"
 
           setUser({
             id: keycloak.tokenParsed.sub || "",
@@ -53,8 +89,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           if (keycloak.token) {
             localStorage.setItem("keycloak_token", keycloak.token)
-            console.log("Token sauvegarde")
+            if (keycloak.refreshToken) {
+              localStorage.setItem("keycloak_refresh_token", keycloak.refreshToken)
+            }
           }
+        } else {
+          // If we tried to init with tokens but it failed (authenticated is false)
+          if (storedToken) {
+            console.log("Restauration échouée, nettoyage des tokens...")
+            localStorage.removeItem("keycloak_token")
+            localStorage.removeItem("keycloak_refresh_token")
+          }
+          setUser(null)
         }
 
         setIsLoading(false)
@@ -65,17 +111,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
 
     const interval = setInterval(() => {
-      keycloak
-        .updateToken(70)
-        .then((refreshed) => {
-          if (refreshed && keycloak.token) {
-            console.log("Token rafraichi")
-            localStorage.setItem("keycloak_token", keycloak.token)
-          }
-        })
-        .catch(() => {
-          console.error("Impossible de rafraichir le token")
-        })
+      if (keycloak.authenticated) {
+        keycloak
+          .updateToken(70)
+          .then((refreshed) => {
+            if (refreshed && keycloak.token) {
+              console.log("Token rafraichi automatiquement")
+              localStorage.setItem("keycloak_token", keycloak.token)
+              if (keycloak.refreshToken) {
+                localStorage.setItem("keycloak_refresh_token", keycloak.refreshToken)
+              }
+            }
+          })
+          .catch(() => {
+            console.error("Impossible de rafraichir le token automatiquement")
+          })
+      }
     }, 60000)
 
     return () => clearInterval(interval)
@@ -90,32 +141,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         keycloak.clearToken()
       }
 
-      const tokenUrl = `${keycloak.authServerUrl}/realms/${keycloak.realm}/protocol/openid-connect/token`
-      console.log("URL token:", tokenUrl)
+      const tokenUrl = `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/token`
+      console.log("🔐 [CABINETX_DEBUG] Tentative de connexion via URL:", tokenUrl)
 
-      const response = await fetch(tokenUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          client_id: keycloak.clientId || "",
-          grant_type: "password",
-          username: email,
-          password: password,
-        }),
-      })
+      let response
+      try {
+        response = await fetch(tokenUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            client_id: KEYCLOAK_CLIENT_ID,
+            grant_type: "password",
+            username: email,
+            password: password,
+          }),
+        })
+      } catch (fetchError: any) {
+        console.error("🌐 [CABINETX_DEBUG] Erreur réseau lors du fetch:", fetchError)
+        throw new Error("Impossible de contacter le serveur d'authentification. Vérifiez votre connexion.")
+      }
 
-      console.log("Reponse Keycloak:", response.status)
+      console.log("📡 [CABINETX_DEBUG] Réponse Keycloak:", response.status, response.statusText)
+
+      const contentType = response.headers.get("content-type")
 
       if (!response.ok) {
-        const errorData = await response.json()
-        console.error("Erreur login:", errorData)
-        throw new Error(errorData.error_description || "Email ou mot de passe incorrect")
+        let errorMessage = `Erreur de connexion (${response.status})`
+        try {
+          if (contentType && contentType.includes("application/json")) {
+            const errorData = await response.json()
+            console.error("❌ [CABINETX_DEBUG] Erreur Keycloak (JSON):", errorData)
+            errorMessage = errorData.error_description || errorMessage
+          } else {
+            const errorText = await response.text()
+            console.error("❌ [CABINETX_DEBUG] Erreur Keycloak (Texte/HTML):", errorText.substring(0, 500))
+            errorMessage = `Erreur serveur: ${response.statusText || response.status}`
+          }
+        } catch (e) {
+          console.error("❌ [CABINETX_DEBUG] Erreur lecture erreur:", e)
+        }
+        throw new Error(errorMessage)
+      }
+
+      // Safe JSON parsing for successful response
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await response.text()
+        console.error("⚠️ [CABINETX_DEBUG] Succès (200) mais contenu non-JSON reçu:", text.substring(0, 500))
+        throw new Error("Le serveur a renvoyé un format invalide (HTML au lieu de JSON).")
       }
 
       const data = await response.json()
-      console.log("Token recu")
+      console.log("✅ [CABINETX_DEBUG] Token reçu avec succès")
 
       keycloak.token = data.access_token
       keycloak.refreshToken = data.refresh_token
@@ -140,7 +218,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const userRole = roles.includes("ADMIN") ? "admin" : roles.includes("MEDCIN") ? "medecin" : "secretaire"
 
-      const newUser = {
+      const newUser: User = {
         id: parsedToken.sub || "",
         email: parsedToken.email || email,
         name: parsedToken.name || parsedToken.preferred_username || email,

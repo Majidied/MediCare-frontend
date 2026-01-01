@@ -13,6 +13,64 @@ import { usePatients, useCreatePatient, useUpdatePatient, useDeletePatient } fro
 import { Patient, CreatePatientDTO } from "@/api/patient.api"
 import { useToast } from "@/hooks/use-toast"
 
+// Move PatientForm outside to prevent recreation on every render
+const PatientForm = ({
+  formData,
+  setFormData,
+  errors,
+}: {
+  formData: CreatePatientDTO
+  setFormData: (data: CreatePatientDTO) => void
+  errors: Record<string, string>
+}) => (
+  <div className="space-y-4 py-4">
+    <div className="grid gap-4 sm:grid-cols-2">
+      <div className="space-y-2">
+        <Label>Nom *</Label>
+        <Input value={formData.nom} onChange={(e) => setFormData({ ...formData, nom: e.target.value })} className={errors.nom ? "border-destructive" : ""} />
+        {errors.nom && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.nom}</p>}
+      </div>
+      <div className="space-y-2">
+        <Label>Prénom *</Label>
+        <Input value={formData.prenom} onChange={(e) => setFormData({ ...formData, prenom: e.target.value })} className={errors.prenom ? "border-destructive" : ""} />
+        {errors.prenom && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.prenom}</p>}
+      </div>
+    </div>
+    <div className="grid gap-4 sm:grid-cols-2">
+      <div className="space-y-2">
+        <Label>CIN *</Label>
+        <Input value={formData.cin} onChange={(e) => setFormData({ ...formData, cin: e.target.value })} className={errors.cin ? "border-destructive" : ""} />
+        {errors.cin && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.cin}</p>}
+      </div>
+      <div className="space-y-2">
+        <Label>Date de naissance *</Label>
+        <Input type="date" value={formData.dateNaissance} onChange={(e) => setFormData({ ...formData, dateNaissance: e.target.value })} className={errors.dateNaissance ? "border-destructive" : ""} />
+        {errors.dateNaissance && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.dateNaissance}</p>}
+      </div>
+    </div>
+    <div className="grid gap-4 sm:grid-cols-2">
+      <div className="space-y-2">
+        <Label>Téléphone *</Label>
+        <Input value={formData.numTel} onChange={(e) => setFormData({ ...formData, numTel: e.target.value })} placeholder="+212 6 12 34 56 78" className={errors.numTel ? "border-destructive" : ""} />
+        {errors.numTel && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.numTel}</p>}
+      </div>
+      <div className="space-y-2">
+        <Label>Mutuelle</Label>
+        <select
+          value={formData.typeMutuelle || "AUCUNE"}
+          onChange={(e) => setFormData({ ...formData, typeMutuelle: e.target.value as "CNSS" | "CNOPS" | "PRIVEE" | "AUCUNE" })}
+          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          <option value="AUCUNE">Aucune</option>
+          <option value="CNSS">CNSS</option>
+          <option value="CNOPS">CNOPS</option>
+          <option value="PRIVEE">Privée</option>
+        </select>
+      </div>
+    </div>
+  </div>
+)
+
 export default function SecretairePatientsPage() {
   // React Query hooks
   const { data: patients = [], isLoading: loading } = usePatients()
@@ -34,8 +92,8 @@ export default function SecretairePatientsPage() {
     dateNaissance: "",
     numTel: "",
     adresse: { rue: "", ville: "" },
-    typeMutuelle: "",
-    sexe: "M",
+    typeMutuelle: "AUCUNE",
+    sexe: "MASCULIN",
     cabinetId: 1,
   })
 
@@ -57,8 +115,8 @@ export default function SecretairePatientsPage() {
       dateNaissance: "",
       numTel: "",
       adresse: { rue: "", ville: "" },
-      typeMutuelle: "",
-      sexe: "M",
+      typeMutuelle: "AUCUNE",
+      sexe: "MASCULIN",
       cabinetId: 1,
     })
     setErrors({})
@@ -71,7 +129,6 @@ export default function SecretairePatientsPage() {
     if (!formData.cin.trim()) newErrors.cin = "Le CIN est obligatoire"
     if (!formData.dateNaissance) newErrors.dateNaissance = "La date de naissance est obligatoire"
     if (!formData.numTel.trim()) newErrors.numTel = "Le téléphone est obligatoire"
-    if (!formData.adresse.rue.trim()) newErrors.adresse = "L'adresse est obligatoire"
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -122,7 +179,7 @@ export default function SecretairePatientsPage() {
       dateNaissance: patient.dateNaissance,
       numTel: patient.numTel,
       adresse: patient.adresse || { rue: "", ville: "" },
-      typeMutuelle: patient.typeMutuelle || "",
+      typeMutuelle: patient.typeMutuelle || "AUCUNE",
       sexe: patient.sexe,
       cabinetId: patient.cabinetId,
     })
@@ -130,54 +187,7 @@ export default function SecretairePatientsPage() {
     setIsEditDialogOpen(true)
   }
 
-  const PatientForm = ({ isEdit = false }: { isEdit?: boolean }) => (
-    <div className="space-y-4 py-4">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label>Nom *</Label>
-          <Input value={formData.nom} onChange={(e) => setFormData({ ...formData, nom: e.target.value })} className={errors.nom ? "border-destructive" : ""} />
-          {errors.nom && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.nom}</p>}
-        </div>
-        <div className="space-y-2">
-          <Label>Prénom *</Label>
-          <Input value={formData.prenom} onChange={(e) => setFormData({ ...formData, prenom: e.target.value })} className={errors.prenom ? "border-destructive" : ""} />
-          {errors.prenom && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.prenom}</p>}
-        </div>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label>CIN *</Label>
-          <Input value={formData.cin} onChange={(e) => setFormData({ ...formData, cin: e.target.value })} className={errors.cin ? "border-destructive" : ""} />
-          {errors.cin && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.cin}</p>}
-        </div>
-        <div className="space-y-2">
-          <Label>Date de naissance *</Label>
-          <Input type="date" value={formData.dateNaissance} onChange={(e) => setFormData({ ...formData, dateNaissance: e.target.value })} className={errors.dateNaissance ? "border-destructive" : ""} />
-          {errors.dateNaissance && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.dateNaissance}</p>}
-        </div>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label>Téléphone *</Label>
-          <Input value={formData.numTel} onChange={(e) => setFormData({ ...formData, numTel: e.target.value })} placeholder="+212 6 12 34 56 78" className={errors.numTel ? "border-destructive" : ""} />
-          {errors.numTel && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.numTel}</p>}
-        </div>
-        <div className="space-y-2">
-          <Label>Mutuelle</Label>
-          <Input value={formData.typeMutuelle} onChange={(e) => setFormData({ ...formData, typeMutuelle: e.target.value })} placeholder="CNSS, CNOPS, etc." />
-        </div>
-      </div>
-      <div className="space-y-2">
-        <Label>Adresse *</Label>
-        <Input value={formData.adresse.rue} onChange={(e) => setFormData({ ...formData, adresse: { ...formData.adresse, rue: e.target.value } })} className={errors.adresse ? "border-destructive" : ""} />
-        {errors.adresse && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.adresse}</p>}
-      </div>
-      <div className="space-y-2">
-        <Label>Ville</Label>
-        <Input value={formData.adresse.ville} onChange={(e) => setFormData({ ...formData, adresse: { ...formData.adresse, ville: e.target.value } })} />
-      </div>
-    </div>
-  )
+
 
   return (
     <DashboardLayout>
@@ -204,7 +214,7 @@ export default function SecretairePatientsPage() {
                 <DialogHeader>
                   <DialogTitle>Créer un nouveau patient</DialogTitle>
                 </DialogHeader>
-                <PatientForm />
+                <PatientForm formData={formData} setFormData={setFormData} errors={errors} />
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>Annuler</Button>
                   <Button onClick={handleCreate} disabled={createMutation.isPending}>
@@ -315,7 +325,7 @@ export default function SecretairePatientsPage() {
               <DialogHeader>
                 <DialogTitle>Modifier le patient</DialogTitle>
               </DialogHeader>
-              <PatientForm isEdit />
+              <PatientForm formData={formData} setFormData={setFormData} errors={errors} />
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Annuler</Button>
                 <Button onClick={handleEdit} disabled={updateMutation.isPending}>

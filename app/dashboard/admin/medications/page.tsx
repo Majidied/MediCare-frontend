@@ -12,6 +12,97 @@ import { Plus, Search, Edit, Trash2, Pill, AlertCircle, Loader2 } from "lucide-r
 import { useToast } from "@/hooks/use-toast"
 import { medicationApi, type MedicationDTO } from "@/api/medication.api"
 
+// Form component moved outside to prevent recreation on every render
+const MedicationForm = ({
+  formData,
+  setFormData,
+  errors,
+  onSubmit,
+  submitLabel,
+}: {
+  formData: { name: string; dosage: string; form: string; description: string }
+  setFormData: (data: { name: string; dosage: string; form: string; description: string }) => void
+  errors: Record<string, string>
+  onSubmit: () => void
+  submitLabel: string
+}) => (
+  <div className="space-y-4">
+    <div className="space-y-2">
+      <Label htmlFor="name">
+        Nom du médicament <span className="text-destructive">*</span>
+      </Label>
+      <Input
+        id="name"
+        value={formData.name}
+        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+        placeholder="Ex: Paracétamol"
+        className={errors.name ? "border-destructive focus-visible:ring-destructive" : ""}
+      />
+      {errors.name && (
+        <p className="text-sm text-destructive flex items-center gap-1">
+          <AlertCircle className="w-4 h-4" />
+          {errors.name}
+        </p>
+      )}
+    </div>
+
+    <div className="space-y-2">
+      <Label htmlFor="dosage">
+        Dosage <span className="text-destructive">*</span>
+      </Label>
+      <Input
+        id="dosage"
+        value={formData.dosage}
+        onChange={(e) => setFormData({ ...formData, dosage: e.target.value })}
+        placeholder="Ex: 500mg, 10ml"
+        className={errors.dosage ? "border-destructive focus-visible:ring-destructive" : ""}
+      />
+      {errors.dosage && (
+        <p className="text-sm text-destructive flex items-center gap-1">
+          <AlertCircle className="w-4 h-4" />
+          {errors.dosage}
+        </p>
+      )}
+    </div>
+
+    <div className="space-y-2">
+      <Label htmlFor="form">
+        Forme <span className="text-destructive">*</span>
+      </Label>
+      <Input
+        id="form"
+        value={formData.form}
+        onChange={(e) => setFormData({ ...formData, form: e.target.value })}
+        placeholder="Ex: Comprimé, Sirop, Gélule"
+        className={errors.form ? "border-destructive focus-visible:ring-destructive" : ""}
+      />
+      {errors.form && (
+        <p className="text-sm text-destructive flex items-center gap-1">
+          <AlertCircle className="w-4 h-4" />
+          {errors.form}
+        </p>
+      )}
+    </div>
+
+    <div className="space-y-2">
+      <Label htmlFor="description">Description</Label>
+      <textarea
+        id="description"
+        value={formData.description}
+        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+        placeholder="Description optionnelle du médicament"
+        className="w-full min-h-[100px] px-3 py-2 rounded-md border border-input bg-background text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+      />
+    </div>
+
+    <div className="flex gap-3 pt-4">
+      <Button onClick={onSubmit} className="flex-1 glow-primary">
+        {submitLabel}
+      </Button>
+    </div>
+  </div>
+)
+
 export default function MedicationsPage() {
   const [medications, setMedications] = useState<MedicationDTO[]>([])
   const [searchQuery, setSearchQuery] = useState("")

@@ -5,45 +5,23 @@ import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Search, FileText, Calendar, Phone, Loader2 } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useMemo, useState } from "react"
 import Link from "next/link"
-import { patientApi, Patient } from "@/api/patient.api"
-import { useToast } from "@/hooks/use-toast"
+import { usePatients } from "@/hooks/use-patient"
 
 export default function PatientsPage() {
   const [searchQuery, setSearchQuery] = useState("")
-  const [patients, setPatients] = useState<Patient[]>([])
-  const [loading, setLoading] = useState(true)
-  const { toast } = useToast()
+  const { data: patients = [], isLoading, isError, error } = usePatients()
 
-  useEffect(() => {
-    const fetchPatients = async () => {
-      try {
-        console.log("[v0] Fetching patients from API...")
-        const response = await patientApi.getAll()
-        console.log("[v0] Patients received:", response.data)
-        setPatients(response.data)
-      } catch (error: any) {
-        console.error("[v0] Error fetching patients:", error)
-        toast({
-          title: "Erreur",
-          description: error.response?.data?.message || "Impossible de charger les patients",
-          variant: "destructive",
-        })
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchPatients()
-  }, [toast])
-
-  const filteredPatients = patients.filter(
-    (patient) =>
-      `${patient.nom} ${patient.prenom}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      patient.cin.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      patient.typeMutuelle?.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
+  const filteredPatients = useMemo(() => {
+    const query = searchQuery.toLowerCase()
+    return patients.filter((patient) => {
+      const fullName = `${patient.nom ?? ""} ${patient.prenom ?? ""}`.toLowerCase()
+      const cin = (patient.cin ?? "").toLowerCase()
+      const mutuelle = (patient.typeMutuelle ?? "").toLowerCase()
+      return fullName.includes(query) || cin.includes(query) || mutuelle.includes(query)
+    })
+  }, [patients, searchQuery])
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -67,11 +45,15 @@ export default function PatientsPage() {
           </div>
         </div>
 
-        {loading ? (
+        {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
             <span className="ml-2 text-muted-foreground">Chargement des patients...</span>
           </div>
+        ) : isError ? (
+          <Card className="glass-card p-6">
+            <p className="text-destructive">Erreur : {(error as any)?.message || "Impossible de charger les patients"}</p>
+          </Card>
         ) : (
           <>
             {/* Stats */}
@@ -172,7 +154,7 @@ export default function PatientsPage() {
               ))}
             </div>
 
-            {filteredPatients.length === 0 && !loading && (
+            {filteredPatients.length === 0 && !isLoading && (
               <Card className="glass-card p-12 text-center">
                 <p className="text-muted-foreground">Aucun patient trouvé</p>
               </Card>

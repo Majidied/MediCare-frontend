@@ -216,7 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const roles = parsedToken.realm_access?.roles || []
       console.log("Roles extraits:", roles)
 
-      const userRole = roles.includes("ADMIN") ? "admin" : roles.includes("MEDECIN") ? "medecin" : "secretaire"
+      const userRole = roles.includes("ADMIN") ? "admin" : roles.includes("MEDCIN") ? "medecin" : "secretaire"
 
       const newUser: User = {
         id: parsedToken.sub || "",

@@ -10,8 +10,9 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useNotifications } from "@/lib/notifications-context"
-import { consultationApi, type ConsultationSummaryDTO } from "@/api/consultation.api"
-import { useQuery } from "@tanstack/react-query"
+import { consultationApi, type ConsultationDTO, type ConsultationSummaryDTO } from "@/api/consultation.api"
+import { rdvApi, type StatutRDV } from "@/api/rdv.api"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   User,
   Calendar,
@@ -51,6 +52,7 @@ export default function PatientDetailsPage() {
   const isValidPatientId = Number.isFinite(patientId) && patientId > 0
   const { toast } = useToast()
   const { addBillingNotification } = useNotifications()
+  const queryClient = useQueryClient()
   const { data: patientData, isLoading, isError, error } = usePatient(isValidPatientId ? patientId : 0)
   const {
     data: consultationsData,
@@ -64,6 +66,33 @@ export default function PatientDetailsPage() {
       return data
     },
     enabled: isValidPatientId,
+    refetchOnWindowFocus: false,
+  })
+  const {
+    data: todayRdv,
+    isLoading: todayRdvLoading,
+    isError: todayRdvError,
+    error: todayRdvErrorObj,
+  } = useQuery({
+    queryKey: ["rdv", "today", patientId],
+    queryFn: () => rdvApi.getTodayForPatient(patientId),
+    enabled: isValidPatientId,
+    refetchOnWindowFocus: false,
+  })
+  const updateConsultationMutation = useMutation({
+    mutationFn: async ({ consultationId, payload }: { consultationId: number; payload: Partial<ConsultationDTO> }) => {
+      const { data } = await consultationApi.update(consultationId, payload)
+      return data
+    },
+  })
+  const createConsultationMutation = useMutation({
+    mutationFn: async (payload: Partial<ConsultationDTO>) => {
+      const { data } = await consultationApi.create(payload)
+      return data
+    },
+  })
+  const deleteConsultationMutation = useMutation({
+    mutationFn: (consultationId: number) => consultationApi.delete(consultationId),
   })
   const [patient, setPatient] = useState<Patient | null>(null)
   const [consultations, setConsultations] = useState<ConsultationViewModel[]>([])
@@ -82,6 +111,16 @@ export default function PatientDetailsPage() {
     Array<{ medicationId: string; posologie: string; duree: string }>
   >([])
 
+  const updateConsultationsState = (
+    updater: ConsultationViewModel[] | ((prev: ConsultationViewModel[]) => ConsultationViewModel[]),
+  ) => {
+    setConsultations((prev) => {
+      const nextState = typeof updater === "function" ? (updater as (p: ConsultationViewModel[]) => ConsultationViewModel[])(prev) : updater
+      queryClient.setQueryData(["consultations", "patient", patientId], nextState)
+      return nextState
+    })
+  }
+
   useEffect(() => {
     if (patientData) {
       setPatient({ ...patientData })
@@ -90,7 +129,7 @@ export default function PatientDetailsPage() {
 
   useEffect(() => {
     if (consultationsData) {
-      setConsultations(consultationsData)
+      updateConsultationsState(consultationsData)
     }
   }, [consultationsData])
 
@@ -105,7 +144,7 @@ export default function PatientDetailsPage() {
     )
   }
 
-  if (isLoading || consultationsLoading) {
+  if (isLoading || consultationsLoading || todayRdvLoading) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center py-12">
@@ -116,21 +155,27 @@ export default function PatientDetailsPage() {
     )
   }
 
-  if (isError || consultationsError || !patient) {
+  if (isError || consultationsError || todayRdvError || !patient) {
     return (
       <DashboardLayout>
         <Card className="p-6 flex items-center gap-2 text-destructive">
           <AlertCircle className="w-5 h-5" />
           <span>
             Erreur :
-            {(error as any)?.message || (consultationsErrorObj as any)?.message || "Impossible de charger le patient"}
+            {(error as any)?.message ||
+              (consultationsErrorObj as any)?.message ||
+              (todayRdvErrorObj as any)?.message ||
+              "Impossible de charger le patient"}
           </span>
         </Card>
       </DashboardLayout>
     )
   }
 
-  const handleAddConsultation = () => {
+  const ineligibleStatuses: StatutRDV[] = ["TERMINE", "ANNULE", "CONFIRME", "MISSING"]
+  const hasEligibleRdv = !!todayRdv && !ineligibleStatuses.includes(todayRdv.statutRDV)
+
+  const handleAddConsultation = async () => {
     if (!newConsultation.type || !newConsultation.diagnostic) {
       toast({
         title: "Erreur",
@@ -140,8 +185,19 @@ export default function PatientDetailsPage() {
       return
     }
 
+    if (!hasEligibleRdv || !todayRdv?.id) {
+      toast({
+        title: "Rendez-vous requis",
+        description: "Aucun rendez-vous valide pour aujourd'hui. Impossible de créer la consultation.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const currentRdv = todayRdv as NonNullable<typeof todayRdv>
+
     if (isEditMode && editConsultationId) {
-      setConsultations((prev) =>
+      updateConsultationsState((prev) =>
         prev.map((c) =>
           c.id === Number(editConsultationId)
             ? {
@@ -161,25 +217,36 @@ export default function PatientDetailsPage() {
         description: "La consultation a été mise à jour avec succès",
       })
     } else {
-      const consultation = {
-        id: Date.now(),
-        rendezVousId: 0,
-        patientId,
-        medecinId: 0,
-        cabinetId: 0,
-        type: newConsultation.type,
-        dateConsultation: newConsultation.dateConsultation,
-        diagnostic: newConsultation.diagnostic,
-        traitement: newConsultation.traitement,
-        observations: newConsultation.observations,
+      try {
+        const payload: Partial<ConsultationDTO> = {
+          patientId,
+          medecinId: 0,
+          cabinetId: currentRdv.cabinetId ?? 0,
+          rendezVousId: currentRdv.id,
+          type: newConsultation.type,
+          dateConsultation: newConsultation.dateConsultation,
+          diagnostic: newConsultation.diagnostic,
+          traitement: newConsultation.traitement,
+          observations: newConsultation.observations,
+          archived: false,
+          archivedAt: undefined,
+        }
+
+        const created = await createConsultationMutation.mutateAsync(payload)
+        updateConsultationsState((prev) => [...prev, { ...created, status: created.archived ? "terminee" : undefined }])
+
+        toast({
+          title: "Consultation ajoutée",
+          description: "La consultation a été créée avec succès",
+        })
+      } catch (err: any) {
+        toast({
+          title: "Erreur",
+          description: err?.response?.data?.message || "Impossible de créer la consultation",
+          variant: "destructive",
+        })
+        return
       }
-
-      setConsultations((prev) => [...prev, consultation])
-
-      toast({
-        title: "Consultation ajoutée",
-        description: "La consultation a été créée avec succès",
-      })
     }
 
     setConsultationDialogOpen(false)
@@ -222,7 +289,7 @@ export default function PatientDetailsPage() {
       }),
     }
 
-    setConsultations((prev) => prev.map((c) => (c.id === consultationId ? { ...c, ordonnance } : c)))
+    updateConsultationsState((prev) => prev.map((c) => (c.id === consultationId ? { ...c, ordonnance } : c)))
     setOrdonnanceDialogOpen(false)
     setSelectedMedications([])
 
@@ -232,12 +299,24 @@ export default function PatientDetailsPage() {
     })
   }
 
-  const handleDeleteConsultation = (consultationId: number) => {
-    if (confirm("Êtes-vous sûr de vouloir supprimer cette consultation ?")) {
-      setConsultations((prev) => prev.filter((c) => c.id !== consultationId))
+  const handleDeleteConsultation = async (consultationId: number) => {
+    if (!confirm("Êtes-vous sûr de vouloir supprimer cette consultation ?")) return
+
+    const previous = [...consultations]
+    updateConsultationsState((prev) => prev.filter((c) => c.id !== consultationId))
+
+    try {
+      await deleteConsultationMutation.mutateAsync(consultationId)
       toast({
         title: "Consultation supprimée",
         description: "La consultation a été supprimée avec succès",
+      })
+    } catch (err: any) {
+      updateConsultationsState(previous)
+      toast({
+        title: "Erreur",
+        description: err?.response?.data?.message || "Impossible de supprimer la consultation",
+        variant: "destructive",
       })
     }
   }
@@ -276,7 +355,7 @@ export default function PatientDetailsPage() {
     setConsultationDialogOpen(true)
   }
 
-  const handleEndConsultation = (consultation: ConsultationViewModel) => {
+  const handleEndConsultation = async (consultation: ConsultationViewModel) => {
     if (!consultation.diagnostic || !consultation.traitement) {
       toast({
         title: "Erreur",
@@ -286,7 +365,45 @@ export default function PatientDetailsPage() {
       return
     }
 
-    setConsultations((prev) => prev.map((c) => (c.id === consultation.id ? { ...c, status: "terminee" } : c)))
+    const previous = [...consultations]
+    const optimisticArchivedAt = new Date().toISOString()
+    updateConsultationsState((prev) =>
+      prev.map((c) =>
+        c.id === consultation.id ? { ...c, status: "terminee", archived: true, archivedAt: optimisticArchivedAt } : c,
+      ),
+    )
+
+    try {
+      const payload: Partial<ConsultationDTO> = {
+        id: consultation.id,
+        patientId: (patient as Patient).id,
+        medecinId: 0,
+        cabinetId: 0,
+        rendezVousId: 0,
+        type: consultation.type,
+        dateConsultation: consultation.dateConsultation,
+        diagnostic: consultation.diagnostic,
+        traitement: consultation.traitement,
+        observations: consultation.observations,
+        archived: true,
+        archivedAt: optimisticArchivedAt,
+      }
+
+      console.log("[consultation-update] sending", payload)
+      const updated = await updateConsultationMutation.mutateAsync({ consultationId: consultation.id, payload })
+      console.log("[consultation-update] received", updated)
+      updateConsultationsState((prev) =>
+        prev.map((c) => (c.id === consultation.id ? { ...c, ...updated, status: "terminee" } : c)),
+      )
+    } catch (err: any) {
+      updateConsultationsState(previous)
+      toast({
+        title: "Erreur",
+        description: err?.response?.data?.message || "Impossible de terminer la consultation",
+        variant: "destructive",
+      })
+      return
+    }
 
     addBillingNotification({
       id: `billing-${Date.now()}`,
@@ -425,7 +542,10 @@ export default function PatientDetailsPage() {
               }}
             >
               <DialogTrigger asChild>
-                <Button className="bg-primary hover:bg-primary/90 glow-primary">
+                <Button
+                  className="bg-primary hover:bg-primary/90 glow-primary"
+                  disabled={!hasEligibleRdv || todayRdvLoading}
+                >
                   <Plus className="w-4 h-4 mr-2" />
                   Nouvelle consultation
                 </Button>
@@ -435,6 +555,12 @@ export default function PatientDetailsPage() {
                   <DialogTitle>{isEditMode ? "Modifier la Consultation" : "Nouvelle Consultation"}</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4">
+                  {!hasEligibleRdv && !todayRdvLoading && (
+                    <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/5 text-sm text-destructive flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4" />
+                      Aucun rendez-vous valide trouvé pour aujourd'hui.
+                    </div>
+                  )}
                   <div>
                     <Label htmlFor="date">Date *</Label>
                     <Input
@@ -452,13 +578,18 @@ export default function PatientDetailsPage() {
                   </div>
                   <div>
                     <Label htmlFor="type">Type *</Label>
-                    <Input
-                      id="type"
+                    <Select
                       value={newConsultation.type}
-                      onChange={(e) => setNewConsultation({ ...newConsultation, type: e.target.value })}
-                      placeholder="Ex: Consultation de suivi"
-                      className="bg-background/50"
-                    />
+                      onValueChange={(value) => setNewConsultation({ ...newConsultation, type: value })}
+                    >
+                      <SelectTrigger id="type" className="bg-background/50">
+                        <SelectValue placeholder="Sélectionner un type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="CONSULTATION">CONSULTATION</SelectItem>
+                        <SelectItem value="CONTROLE">CONTROLE</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label htmlFor="diagnostic">Diagnostic *</Label>
@@ -497,7 +628,11 @@ export default function PatientDetailsPage() {
                     <Button variant="outline" onClick={() => setConsultationDialogOpen(false)}>
                       Annuler
                     </Button>
-                    <Button onClick={handleAddConsultation} className="bg-primary hover:bg-primary/90">
+                    <Button
+                      onClick={handleAddConsultation}
+                      className="bg-primary hover:bg-primary/90"
+                      disabled={createConsultationMutation.isPending}
+                    >
                       {isEditMode ? "Mettre à jour" : "Enregistrer"}
                     </Button>
                   </div>
@@ -519,13 +654,15 @@ export default function PatientDetailsPage() {
                         <Badge variant="outline" className="text-xs">
                           {consultation.dateConsultation}
                         </Badge>
-                          {consultation.status === "terminee" && (
-                          <Badge className="text-xs bg-green-500/20 text-green-400 border-green-500/30">Terminée</Badge>
+                        {(consultation.status === "terminee" || consultation.archived) && (
+                          <Badge className="text-xs bg-green-500/20 text-green-400 border-green-500/30">
+                            Terminée
+                          </Badge>
                         )}
                         <h3 className="font-semibold">{consultation.type || "-"}</h3>
                       </div>
                       <div className="flex gap-2">
-                        {consultation.status !== "terminee" && (
+                        {!(consultation.status === "terminee" || consultation.archived) && (
                           <>
                             <Button
                               variant="ghost"
@@ -553,6 +690,9 @@ export default function PatientDetailsPage() {
                         <p className="text-muted-foreground">Diagnostic:</p>
                         <p>{consultation.diagnostic}</p>
                       </div>
+                      {consultation.archivedAt && (
+                        <p className="text-xs text-muted-foreground">Archivée le {consultation.archivedAt}</p>
+                      )}
                       {consultation.traitement && (
                         <div>
                           <p className="text-muted-foreground">Traitement:</p>
@@ -700,7 +840,7 @@ export default function PatientDetailsPage() {
                         </DialogContent>
                       </Dialog>
                     )}
-                    {consultation.status !== "terminee" && (
+                    {!(consultation.status === "terminee" || consultation.archived) && (
                       <Button
                         onClick={() => handleEndConsultation(consultation)}
                         className="w-full mt-4 bg-green-500/20 hover:bg-green-500/30 text-green-400 border border-green-500/30"

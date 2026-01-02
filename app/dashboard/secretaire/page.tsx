@@ -17,8 +17,16 @@ export default function SecretaireDashboard() {
     return now.toISOString().split('T')[0]
   }, [])
 
-  // Fetch today's appointments
-  const { data: todayAppointments = [], isLoading } = useAppointmentsByDate(today, CABINET_ID)
+  // Fetch today's appointments (raw backend response)
+  const { data: todayAppointmentsRaw = [], isLoading } = useAppointmentsByDate(today, CABINET_ID)
+
+  // Convert backend response to frontend-friendly format
+  const todayAppointments = useMemo(() => {
+    // Import the helper inline to avoid circular import issues
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { appointmentHelpers } = require("@/api/appointment.api")
+    return todayAppointmentsRaw.map((apt: any) => appointmentHelpers.toFrontend(apt))
+  }, [todayAppointmentsRaw])
 
   // Calculate stats
   const stats = useMemo(() => {

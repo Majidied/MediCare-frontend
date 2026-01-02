@@ -13,7 +13,9 @@ export function useAppointmentsByDate(date: string, cabinetId: number) {
             const response = await appointmentApi.getByDate(date, cabinetId);
             return response.data;
         },
-        staleTime: 30000, // Consider data fresh for 30 seconds
+        staleTime: 5000, // Consider data fresh for 5 seconds
+        refetchInterval: 30000, // Auto-refetch every 30 seconds
+        refetchOnWindowFocus: true, // Refetch when window regains focus
         enabled: !!date && !!cabinetId, // Only run query if date and cabinetId are provided
     });
 }

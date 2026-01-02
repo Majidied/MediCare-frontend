@@ -33,6 +33,7 @@ type AuthContextType = {
   logout: () => Promise<void>
   isAuthenticated: boolean
   isLoading: boolean
+  hasTokens: boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -40,6 +41,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [hasTokens, setHasTokens] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -47,6 +49,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const storedToken = localStorage.getItem("keycloak_token")
     const storedRefreshToken = localStorage.getItem("keycloak_refresh_token")
+
+    setHasTokens(!!storedToken || !!storedRefreshToken)
+
+    // Optimistically preload user from valid stored token to avoid UI flicker
+    const preload = parseJwt(storedToken || "")
+    if (preload && preload.exp && preload.exp * 1000 > Date.now()) {
+      const roles = preload.realm_access?.roles || []
+      const userRole: "admin" | "medecin" | "secretaire" = roles.includes("ADMIN")
+        ? "admin"
+        : roles.includes("MEDCIN")
+          ? "medecin"
+          : "secretaire"
+
+      setUser({
+        id: preload.sub || "",
+        email: preload.email || "",
+        name: preload.name || preload.preferred_username || "",
+        role: userRole,
+      })
+    }
 
     const initOptions: any = {
       onLoad: "check-sso",
@@ -60,12 +82,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const parsed = parseJwt(storedToken)
 
       if (parsed && parsed.exp && parsed.exp * 1000 > Date.now()) {
+        console.log("Token encore valide, restauration...")
         initOptions.token = storedToken
         initOptions.refreshToken = storedRefreshToken || undefined
       } else if (storedRefreshToken) {
-        console.log("Token expiré, utilisation du refresh token...")
-        initOptions.token = undefined
+        console.log("Token expiré, tentative avec refresh token...")
+        initOptions.token = storedToken // Keep expired token for refresh
         initOptions.refreshToken = storedRefreshToken
+      } else {
+        console.log("Token expiré sans refresh token, nettoyage...")
+        localStorage.removeItem("keycloak_token")
+        localStorage.removeItem("keycloak_refresh_token")
+        localStorage.removeItem("user_role")
       }
     }
 
@@ -78,7 +106,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.log("Session active:", keycloak.tokenParsed.preferred_username)
 
           const roles = keycloak.tokenParsed.realm_access?.roles || []
-          const userRole: "admin" | "medecin" | "secretaire" = roles.includes("ADMIN") ? "admin" : roles.includes("MEDECIN") ? "medecin" : "secretaire"
+          console.log("Rôles détectés à l'init:", roles)
+          const userRole: "admin" | "medecin" | "secretaire" = roles.includes("ADMIN") ? "admin" : roles.includes("MEDCIN") ? "medecin" : "secretaire"
+          console.log("Role assigné:", userRole)
 
           setUser({
             id: keycloak.tokenParsed.sub || "",
@@ -87,6 +117,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             role: userRole,
           })
 
+          // Store user role in localStorage for persistence
+          localStorage.setItem("user_role", userRole)
+
           if (keycloak.token) {
             localStorage.setItem("keycloak_token", keycloak.token)
             if (keycloak.refreshToken) {
@@ -94,13 +127,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           }
         } else {
-          // If we tried to init with tokens but it failed (authenticated is false)
-          if (storedToken) {
-            console.log("Restauration échouée, nettoyage des tokens...")
-            localStorage.removeItem("keycloak_token")
-            localStorage.removeItem("keycloak_refresh_token")
-          }
-          setUser(null)
+          // If init failed, keep any preloaded user; otherwise leave as null
+          console.log("Init non authentifié, aucun changement d'état utilisateur")
         }
 
         setIsLoading(false)
@@ -123,8 +151,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               }
             }
           })
-          .catch(() => {
-            console.error("Impossible de rafraichir le token automatiquement")
+          .catch((error) => {
+            console.error("Erreur refresh token:", error)
+            // Just log the error, don't force logout
+            // User will be logged out naturally when trying to make API calls
           })
       }
     }, 60000)
@@ -240,8 +270,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log("Deconnexion...")
 
     setUser(null)
+    setHasTokens(false)
     localStorage.removeItem("keycloak_token")
     localStorage.removeItem("keycloak_refresh_token")
+    localStorage.removeItem("user_role")
 
     keycloak.clearToken()
 
@@ -262,7 +294,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user, isLoading }}>
+    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user, isLoading, hasTokens }}>
       {children}
     </AuthContext.Provider>
   )
@@ -279,7 +311,16 @@ export function useAuth() {
 function parseJwt(token: string) {
   try {
     console.log("Parsing JWT token...")
-    const base64Url = token.split(".")[1]
+    if (!token) {
+      return null
+    }
+
+    const parts = token.split(".")
+    if (parts.length < 2 || !parts[1]) {
+      return null
+    }
+
+    const base64Url = parts[1]
     const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/")
     const jsonPayload = decodeURIComponent(
       atob(base64)

@@ -24,9 +24,10 @@ export interface Patient {
     typeMutuelle?: TypeMutuelle;
     sexe: Sexe;
     cabinetId: number;
+    createdAt?: string;
 }
 
-export interface CreatePatientDTO extends Omit<Patient, 'id'> {}
+export interface CreatePatientDTO extends Omit<Patient, 'id' | 'createdAt'> {}
 
 export const patientApi = {
     getAll: (nom?: string, prenom?: string) =>

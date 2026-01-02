@@ -47,10 +47,34 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   }, [])
 
   useEffect(() => {
-    if (mounted && !authLoading && !user) {
-      router.push("/")
+    if (!mounted || authLoading) return
+
+    const hasStoredTokens = typeof window !== "undefined" &&
+      (localStorage.getItem("keycloak_token") || localStorage.getItem("keycloak_refresh_token"))
+
+    if (!user && !hasStoredTokens) {
+      console.log("User absent et aucun token stocké, redirection vers login")
+      router.push("/login")
     }
   }, [mounted, authLoading, user, router])
+
+  // Verify user role matches the current dashboard path
+  useEffect(() => {
+    if (mounted && !authLoading && user) {
+      const pathRole = pathname.split('/')[2] // Extract role from /dashboard/{role}/...
+      
+      // Only redirect if we're on a role-specific page and it doesn't match
+      if (pathRole && ['admin', 'medecin', 'secretaire'].includes(pathRole) && pathRole !== user.role) {
+        console.warn(`Role mismatch detected! User role: ${user.role}, Path role: ${pathRole}`)
+        toast({
+          title: "Redirection",
+          description: `Vous avez été redirigé vers votre dashboard ${user.role}`,
+          variant: "default",
+        })
+        router.push(`/dashboard/${user.role}`)
+      }
+    }
+  }, [mounted, authLoading, user, pathname, router, toast])
 
   if (!mounted || authLoading || !user) {
     return (

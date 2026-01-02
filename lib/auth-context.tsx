@@ -78,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.log("Session active:", keycloak.tokenParsed.preferred_username)
 
           const roles = keycloak.tokenParsed.realm_access?.roles || []
-          const userRole: "admin" | "medecin" | "secretaire" = roles.includes("ADMIN") ? "admin" : roles.includes("MEDECIN") ? "medecin" : "secretaire"
+          const userRole: "admin" | "medecin" | "secretaire" = roles.includes("ADMIN") ? "admin" : roles.includes("MEDCIN") ? "medecin" : "secretaire"
 
           setUser({
             id: keycloak.tokenParsed.sub || "",

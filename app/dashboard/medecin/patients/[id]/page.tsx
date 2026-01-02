@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useNotifications } from "@/lib/notifications-context"
+import { useAuth } from "@/lib/auth-context"
 import { consultationApi, type ConsultationDTO, type ConsultationSummaryDTO } from "@/api/consultation.api"
 import { rdvApi, type StatutRDV } from "@/api/rdv.api"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -50,6 +51,10 @@ export default function PatientDetailsPage() {
   const params = useParams<{ id: string }>()
   const patientId = typeof params?.id === "string" ? Number(params.id) : Number.NaN
   const isValidPatientId = Number.isFinite(patientId) && patientId > 0
+  const { user } = useAuth()
+  const medecinIdFromUser = Number(user?.id)
+  const medecinIdEnv = Number(process.env.NEXT_PUBLIC_MEDECIN_ID ?? process.env.NEXT_PUBLIC_DEFAULT_MEDECIN_ID ?? 0)
+  const medecinId = Number.isFinite(medecinIdFromUser) && medecinIdFromUser > 0 ? medecinIdFromUser : medecinIdEnv || 0
   const { toast } = useToast()
   const { addBillingNotification } = useNotifications()
   const queryClient = useQueryClient()
@@ -220,7 +225,7 @@ export default function PatientDetailsPage() {
       try {
         const payload: Partial<ConsultationDTO> = {
           patientId,
-          medecinId: 0,
+          medecinId,
           cabinetId: currentRdv.cabinetId ?? 0,
           rendezVousId: currentRdv.id,
           type: newConsultation.type,

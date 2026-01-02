@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from "react"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -20,6 +21,10 @@ export default function MedecinDashboard() {
   const medecinIdEnv = Number(process.env.NEXT_PUBLIC_MEDECIN_ID ?? process.env.NEXT_PUBLIC_DEFAULT_MEDECIN_ID ?? 0)
   const medecinId = Number.isFinite(medecinIdFromUser) && medecinIdFromUser > 0 ? medecinIdFromUser : medecinIdEnv || 1
   const recentLimit = 5
+
+  useEffect(() => {
+    console.log("[MedecinDashboard] userId (Keycloak sub):", user?.id, "medecinId utilisé:", medecinId)
+  }, [user?.id, medecinId])
 
   const {
     data: todayAppointments = [],
@@ -46,6 +51,7 @@ export default function MedecinDashboard() {
     queryKey: ["consultations", "recent", medecinId, recentLimit],
     queryFn: async () => {
       const { data } = await consultationApi.getRecentByMedecin(medecinId, recentLimit)
+      console.log("Recent consultations data:", data)
       return data
     },
     enabled: medecinId > 0,

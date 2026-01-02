@@ -4,7 +4,7 @@ import apiClient from './client';
 
 // Enums to match backend
 export type StatutRDV = 'CONFIRME' | 'EN_CONSULTATION' | 'ANNULE' | 'TERMINE' | 'MISSING';
-export type MotifRDV = string; // Backend uses enum but we'll use string for flexibility
+export type MotifRDV = 'CONSULTATION' | 'CONTROL';
 
 // TypeScript interfaces matching backend DTOs
 export interface AppointmentRequest {
@@ -33,7 +33,7 @@ export interface Appointment {
     patientName: string;
     date: string;
     time: string;
-    motif: string;
+    motif: MotifRDV;
     status: 'confirmé' | 'en_attente' | 'annulé';
     notes?: string;
 }
@@ -42,6 +42,23 @@ export interface Appointment {
 export const appointmentHelpers = {
     // Convert backend response to frontend appointment
     toFrontend(response: AppointmentResponse): Appointment {
+        // Map backend status to frontend status
+        let frontendStatus: 'confirmé' | 'en_attente' | 'annulé';
+        switch (response.statutRDV) {
+            case 'CONFIRME':
+            case 'EN_CONSULTATION':
+            case 'TERMINE':
+                frontendStatus = 'confirmé';
+                break;
+            case 'ANNULE':
+            case 'MISSING':
+                frontendStatus = 'annulé';
+                break;
+            default:
+                frontendStatus = 'en_attente';
+                break;
+        }
+
         return {
             id: response.id.toString(),
             patientId: response.patientId.toString(),
@@ -49,8 +66,7 @@ export const appointmentHelpers = {
             date: response.date,
             time: response.Heure_debut.substring(0, 5), // Convert "08:00:00" to "08:00"
             motif: response.motifRDV, // Keep the enum value (CONSULTATION or CONTROL)
-            status: response.statutRDV === 'CONFIRME' ? 'confirmé' :
-                response.statutRDV === 'ANNULE' ? 'annulé' : 'confirmé',
+            status: frontendStatus,
             notes: response.notes,
         };
     },
@@ -61,7 +77,7 @@ export const appointmentHelpers = {
         cabinetId: number,
         date: string,
         time: string,
-        motif: string,
+        motif: MotifRDV,
         notes: string
     ): AppointmentRequest {
         // Calculate end time (30 minutes after start)

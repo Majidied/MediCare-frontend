@@ -204,12 +204,12 @@ export default function RendezVousPage() {
     const updatedAppointments = appointments.map((apt) =>
       apt.id === selectedAppointment.id
         ? {
-            ...apt,
-            patientId: formData.patientId,
-            patientName: patient.name,
-            motif: formData.motif,
-            notes: formData.notes,
-          }
+          ...apt,
+          patientId: formData.patientId,
+          patientName: patient.name,
+          motif: formData.motif,
+          notes: formData.notes,
+        }
         : apt,
     )
 
@@ -412,14 +412,13 @@ export default function RendezVousPage() {
                       onClick={() => handleSlotClick(time)}
                       className={`
                         w-full p-4 rounded-lg border-2 transition-all text-left
-                        ${
-                          isBooked
-                            ? appointment.status === "confirmé"
-                              ? "bg-success/10 border-success/30 hover:bg-success/20"
-                              : appointment.status === "en_attente"
-                                ? "bg-warning/10 border-warning/30 hover:bg-warning/20"
-                                : "bg-destructive/10 border-destructive/30 hover:bg-destructive/20"
-                            : "border-border/50 hover:bg-primary/5 hover:border-primary/30"
+                        ${isBooked
+                          ? appointment.status === "confirmé"
+                            ? "bg-success/10 border-success/30 hover:bg-success/20"
+                            : appointment.status === "en_attente"
+                              ? "bg-warning/10 border-warning/30 hover:bg-warning/20"
+                              : "bg-destructive/10 border-destructive/30 hover:bg-destructive/20"
+                          : "border-border/50 hover:bg-primary/5 hover:border-primary/30"
                         }
                       `}
                     >

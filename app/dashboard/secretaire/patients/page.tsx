@@ -254,7 +254,13 @@ export default function SecretairePatientsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Nouveaux ce mois</p>
-                  <h3 className="text-2xl font-bold mt-2">12</h3>
+                  <h3 className="text-2xl font-bold mt-2">
+                    {patients.filter(p => {
+                      const createdDate = new Date(p.dateNaissance)
+                      const now = new Date()
+                      return createdDate.getMonth() === now.getMonth() && createdDate.getFullYear() === now.getFullYear()
+                    }).length}
+                  </h3>
                 </div>
                 <div className="p-3 rounded-xl bg-accent/10 border border-accent/20">
                   <FileText className="w-6 h-6 text-accent" />

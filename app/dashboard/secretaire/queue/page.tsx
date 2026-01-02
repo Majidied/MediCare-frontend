@@ -369,11 +369,10 @@ export default function QueuePage() {
                         onDragStart={(e) => handleDragStart(e, appointment, "queue")}
                         onDragOver={handleDragOver}
                         onDrop={(e) => handleDropInQueue(e, index)}
-                        className={`p-4 rounded-lg bg-card border transition-all cursor-move ${
-                          index === 0
-                            ? "border-primary/50 shadow-lg shadow-primary/20 glow-primary"
-                            : "border-border hover:border-primary/30"
-                        }`}
+                        className={`p-4 rounded-lg bg-card border transition-all cursor-move ${index === 0
+                          ? "border-primary/50 shadow-lg shadow-primary/20 glow-primary"
+                          : "border-border hover:border-primary/30"
+                          }`}
                       >
                         <div className="flex items-start gap-3">
                           <div className="flex items-center gap-2">

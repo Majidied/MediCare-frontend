@@ -49,6 +49,18 @@ export default function SecretairePatientsPage() {
       patient.typeMutuelle?.toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
+  const newPatientsThisMonth = (() => {
+    const now = new Date()
+    const month = now.getMonth()
+    const year = now.getFullYear()
+
+    return patients.filter((patient) => {
+      if (!patient.createdAt) return false
+      const created = new Date(patient.createdAt)
+      return !Number.isNaN(created.getTime()) && created.getMonth() === month && created.getFullYear() === year
+    }).length
+  })()
+
   const resetForm = () => {
     setFormData({
       nom: "",
@@ -243,7 +255,7 @@ export default function SecretairePatientsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Nouveaux ce mois</p>
-                  <h3 className="text-2xl font-bold mt-2">12</h3>
+                  <h3 className="text-2xl font-bold mt-2">{newPatientsThisMonth}</h3>
                 </div>
                 <div className="p-3 rounded-xl bg-accent/10 border border-accent/20">
                   <FileText className="w-6 h-6 text-accent" />

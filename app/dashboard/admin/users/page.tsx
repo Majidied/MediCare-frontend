@@ -21,6 +21,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Pencil, Trash2, Search, UserPlus, AlertCircle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useUsers, useCreateUser, useUpdateUser, useDeactivateUser } from "@/hooks/use-user"
+import { useActiveClinics } from "@/hooks/use-clinic"
 import type { UserDTO, UserRole, CreateUserRequest } from "@/api/user.api"
 
 type FormErrors = {
@@ -30,6 +31,7 @@ type FormErrors = {
   phoneNumber?: string
   password?: string
   role?: string
+  clinicId?: string
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -37,7 +39,7 @@ const PASSWORD_MIN_LENGTH = 6
 const PHONE_REGEX = /^[0-9+\s-]{8,}$/
 
 const validateForm = (
-  data: { firstName: string; lastName: string; login: string; phoneNumber: string; password: string; role: string },
+  data: { firstName: string; lastName: string; login: string; phoneNumber: string; password: string; role: string; clinicId: number | null },
   isEdit = false,
 ): FormErrors => {
   const errors: FormErrors = {}
@@ -78,11 +80,17 @@ const validateForm = (
     errors.role = "Le rôle est obligatoire"
   }
 
+  // Validate clinic for MEDCIN and SECRETAIRE roles
+  if ((data.role === "MEDCIN" || data.role === "SECRETAIRE") && !data.clinicId) {
+    errors.clinicId = "La clinique est obligatoire pour ce rôle"
+  }
+
   return errors
 }
 
 export default function UsersPage() {
   const { data: users = [], isLoading, isError } = useUsers()
+  const { data: activeClinics = [] } = useActiveClinics()
   const createUserMutation = useCreateUser()
   const updateUserMutation = useUpdateUser()
   const deactivateUserMutation = useDeactivateUser()
@@ -100,7 +108,8 @@ export default function UsersPage() {
     login: "",
     phoneNumber: "",
     password: "",
-    role: "MEDECIN" as UserRole,
+    role: "MEDCIN" as UserRole,
+    clinicId: null as number | null,
   })
 
   const filteredUsers = users.filter(
@@ -133,6 +142,7 @@ export default function UsersPage() {
       phoneNumber: formData.phoneNumber,
       password: formData.password,
       role: formData.role,
+      clinicId: formData.clinicId ?? undefined,
     }
 
     try {
@@ -171,6 +181,7 @@ export default function UsersPage() {
       phoneNumber: formData.phoneNumber,
       ...(formData.password && { password: formData.password }),
       role: formData.role,
+      clinicId: formData.clinicId ?? undefined,
     }
 
     try {
@@ -202,6 +213,7 @@ export default function UsersPage() {
       phoneNumber: user.phoneNumber,
       password: "",
       role: user.role,
+      clinicId: user.clinicId ?? null,
     })
     setFormErrors({})
     setIsEditDialogOpen(true)
@@ -211,7 +223,7 @@ export default function UsersPage() {
     switch (role) {
       case "ADMIN":
         return "bg-purple-500/10 text-purple-500 border-purple-500/20"
-      case "MEDECIN":
+      case "MEDCIN":
         return "bg-primary/10 text-primary border-primary/20"
       case "SECRETAIRE":
         return "bg-blue-500/10 text-blue-500 border-blue-500/20"
@@ -222,7 +234,7 @@ export default function UsersPage() {
     switch (role) {
       case "ADMIN":
         return "Administrateur"
-      case "MEDECIN":
+      case "MEDCIN":
         return "Médecin"
       case "SECRETAIRE":
         return "Secrétaire"
@@ -230,7 +242,7 @@ export default function UsersPage() {
   }
 
   const resetForm = () => {
-    setFormData({ firstName: "", lastName: "", login: "", phoneNumber: "", password: "", role: "MEDECIN" })
+    setFormData({ firstName: "", lastName: "", login: "", phoneNumber: "", password: "", role: "MEDCIN", clinicId: null })
     setFormErrors({})
   }
 
@@ -406,18 +418,60 @@ export default function UsersPage() {
                   </Label>
                   <Select
                     value={formData.role}
-                    onValueChange={(value: UserRole) => setFormData({ ...formData, role: value })}
+                    onValueChange={(value: UserRole) => {
+                      setFormData({ ...formData, role: value, clinicId: value === "ADMIN" ? null : formData.clinicId })
+                      if (formErrors.clinicId && value === "ADMIN") setFormErrors({ ...formErrors, clinicId: undefined })
+                    }}
                   >
                     <SelectTrigger className="glass-card border-border/50">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="MEDECIN">Médecin</SelectItem>
+                      <SelectItem value="MEDCIN">Médecin</SelectItem>
                       <SelectItem value="SECRETAIRE">Secrétaire</SelectItem>
                       <SelectItem value="ADMIN">Administrateur</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+
+                {/* Clinic Selection - Only for MEDCIN and SECRETAIRE */}
+                {(formData.role === "MEDCIN" || formData.role === "SECRETAIRE") && (
+                  <div className="space-y-2">
+                    <Label htmlFor="clinicId" className="flex items-center gap-1">
+                      Clinique <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={formData.clinicId?.toString() ?? ""}
+                      onValueChange={(value) => {
+                        setFormData({ ...formData, clinicId: value ? Number(value) : null })
+                        if (formErrors.clinicId) setFormErrors({ ...formErrors, clinicId: undefined })
+                      }}
+                    >
+                      <SelectTrigger className={`glass-card border-border/50 ${formErrors.clinicId ? "border-destructive" : ""}`}>
+                        <SelectValue placeholder="Sélectionner une clinique" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {activeClinics.length === 0 ? (
+                          <SelectItem value="" disabled>
+                            Aucune clinique active disponible
+                          </SelectItem>
+                        ) : (
+                          activeClinics.map((clinic) => (
+                            <SelectItem key={clinic.id} value={clinic.id!.toString()}>
+                              {clinic.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {formErrors.clinicId && (
+                      <p className="text-sm text-destructive flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        {formErrors.clinicId}
+                      </p>
+                    )}
+                  </div>
+                )}
                 <Button onClick={handleCreateUser} className="w-full glow-primary" disabled={createUserMutation.isPending}>
                   {createUserMutation.isPending ? (
                     <>
@@ -448,7 +502,7 @@ export default function UsersPage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Médecins</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-primary">{users.filter((u) => u.role === "MEDECIN").length}</div>
+              <div className="text-3xl font-bold text-primary">{users.filter((u) => u.role === "MEDCIN").length}</div>
             </CardContent>
           </Card>
           <Card className="glass-card border-border/50 overflow-hidden">
@@ -683,18 +737,60 @@ export default function UsersPage() {
                 </Label>
                 <Select
                   value={formData.role}
-                  onValueChange={(value: UserRole) => setFormData({ ...formData, role: value })}
+                  onValueChange={(value: UserRole) => {
+                    setFormData({ ...formData, role: value, clinicId: value === "ADMIN" ? null : formData.clinicId })
+                    if (formErrors.clinicId && value === "ADMIN") setFormErrors({ ...formErrors, clinicId: undefined })
+                  }}
                 >
                   <SelectTrigger className="glass-card border-border/50">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="MEDECIN">Médecin</SelectItem>
+                    <SelectItem value="MEDCIN">Médecin</SelectItem>
                     <SelectItem value="SECRETAIRE">Secrétaire</SelectItem>
                     <SelectItem value="ADMIN">Administrateur</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Clinic Selection - Only for MEDCIN and SECRETAIRE */}
+              {(formData.role === "MEDCIN" || formData.role === "SECRETAIRE") && (
+                <div className="space-y-2">
+                  <Label htmlFor="edit-clinicId" className="flex items-center gap-1">
+                    Clinique <span className="text-destructive">*</span>
+                  </Label>
+                  <Select
+                    value={formData.clinicId?.toString() ?? ""}
+                    onValueChange={(value) => {
+                      setFormData({ ...formData, clinicId: value ? Number(value) : null })
+                      if (formErrors.clinicId) setFormErrors({ ...formErrors, clinicId: undefined })
+                    }}
+                  >
+                    <SelectTrigger className={`glass-card border-border/50 ${formErrors.clinicId ? "border-destructive" : ""}`}>
+                      <SelectValue placeholder="Sélectionner une clinique" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activeClinics.length === 0 ? (
+                        <SelectItem value="" disabled>
+                          Aucune clinique active disponible
+                        </SelectItem>
+                      ) : (
+                        activeClinics.map((clinic) => (
+                          <SelectItem key={clinic.id} value={clinic.id!.toString()}>
+                            {clinic.name}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {formErrors.clinicId && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {formErrors.clinicId}
+                    </p>
+                  )}
+                </div>
+              )}
               <Button onClick={handleEditUser} className="w-full glow-primary" disabled={updateUserMutation.isPending}>
                 {updateUserMutation.isPending ? (
                   <>

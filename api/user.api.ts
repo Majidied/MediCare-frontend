@@ -1,7 +1,7 @@
 import apiClient from './client';
 
 // Types
-export type UserRole = 'MEDECIN' | 'SECRETAIRE' | 'ADMIN';
+export type UserRole = 'MEDCIN' | 'SECRETAIRE' | 'ADMIN';
 
 export interface UserDTO {
     id?: number;

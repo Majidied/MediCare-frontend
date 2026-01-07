@@ -13,6 +13,7 @@ import { useNotifications } from "@/lib/notifications-context"
 import { useAppointmentsByDate } from "@/hooks/use-appointment"
 import { useQueue, useAddToQueue, useRemoveFromQueue, useCallNext, useReorderQueue } from "@/hooks/use-queue"
 import { appointmentHelpers } from "@/api/appointment.api"
+import { getTodayLocalDateString } from "@/lib/date.utils"
 
 const CABINET_ID = 1 // In real app, get from auth context
 const AUTO_REFRESH_INTERVAL = 30000 // 30 seconds
@@ -34,8 +35,7 @@ export default function QueuePage() {
 
   // Get today's date in YYYY-MM-DD format
   const today = useMemo(() => {
-    const now = new Date()
-    return now.toISOString().split('T')[0]
+    return getTodayLocalDateString()
   }, [])
 
   // Fetch today's appointments and queue
@@ -205,7 +205,7 @@ export default function QueuePage() {
 
     // Call reorder API
     reorderQueueMutation.mutate({
-      cabinetId: CABINET_ID,
+      cabinetId: cabinetId,
       date: today,
       appointmentIds,
     }, {
@@ -223,7 +223,7 @@ export default function QueuePage() {
         })
       }
     })
-    
+
     setDraggedItem(null)
   }
 
@@ -231,7 +231,7 @@ export default function QueuePage() {
     if (queue.length === 0) return
 
     const patient = queue[0]
-    
+
     callNextMutation.mutate(Number(patient.id), {
       onSuccess: () => {
         setInConsultation(patient)
@@ -324,7 +324,7 @@ export default function QueuePage() {
               </div>
             </div>
           </Card>
-          
+
           <Card className="glass-card border-accent/20 p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-accent/10">
@@ -336,7 +336,7 @@ export default function QueuePage() {
               </div>
             </div>
           </Card>
-          
+
           <Card className="glass-card border-green-500/20 p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-green-500/10">
@@ -534,8 +534,8 @@ export default function QueuePage() {
                   </div>
                 </div>
                 {queue.length > 0 && (
-                  <Button 
-                    onClick={handleSendToDoctor} 
+                  <Button
+                    onClick={handleSendToDoctor}
                     className="glow-primary shrink-0 w-full sm:w-auto"
                     disabled={callNextMutation.isPending}
                   >

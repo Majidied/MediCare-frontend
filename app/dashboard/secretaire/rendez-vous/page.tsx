@@ -22,6 +22,7 @@ import {
   useUpdateAppointmentStatus
 } from "@/hooks/use-appointment"
 import { appointmentHelpers, MotifRDV } from "@/api/appointment.api"
+import { getLocalDateString } from "@/lib/date.utils"
 
 const CABINET_ID = 1 // In real app, get from auth context
 
@@ -93,7 +94,7 @@ export default function RendezVousPage() {
   }, [appointmentsData])
 
   function formatDate(date: Date) {
-    return date.toISOString().split("T")[0]
+    return getLocalDateString(date)
   }
 
   const getDaysInMonth = (date: Date) => {

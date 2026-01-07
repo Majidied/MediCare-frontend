@@ -4,21 +4,22 @@ import { useAuth } from "@/lib/auth-context"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Calendar, Users, Clock, FileText, Activity } from "lucide-react"
 import { useAppointmentsByDate } from "@/hooks/use-appointment"
+import { getTodayLocalDateString } from "@/lib/date.utils"
 import { useMemo } from "react"
-
-const CABINET_ID = 1 // In real app, get from auth context
 
 export default function SecretaireDashboard() {
   const { user } = useAuth()
 
+  // Get cabinetId from authenticated user, fallback to env variable
+  const cabinetId = user?.cabinetId ?? (Number(process.env.NEXT_PUBLIC_DEFAULT_CABINET_ID ?? 1) || 1)
+
   // Get today's date in YYYY-MM-DD format
   const today = useMemo(() => {
-    const now = new Date()
-    return now.toISOString().split('T')[0]
+    return getTodayLocalDateString()
   }, [])
 
   // Fetch today's appointments (raw backend response)
-  const { data: todayAppointmentsRaw = [], isLoading } = useAppointmentsByDate(today, CABINET_ID)
+  const { data: todayAppointmentsRaw = [], isLoading } = useAppointmentsByDate(today, cabinetId)
 
   // Convert backend response to frontend-friendly format
   const todayAppointments = useMemo(() => {
@@ -41,9 +42,39 @@ export default function SecretaireDashboard() {
     }
   }, [todayAppointments])
 
-  // Get first 5 appointments for the list
-  const upcomingAppointments = useMemo(() => {
-    return todayAppointments.slice(0, 5)
+  // Split appointments into current/past and upcoming based on current time
+  const { currentAppointments, upcomingAppointments } = useMemo(() => {
+    const now = new Date()
+    const currentHour = now.getHours()
+    const currentMinute = now.getMinutes()
+    const currentTimeInMinutes = currentHour * 60 + currentMinute
+
+    // Sort appointments by time
+    const sortedAppointments = [...todayAppointments].sort((a, b) => {
+      const [aHour, aMin] = a.time.split(':').map(Number)
+      const [bHour, bMin] = b.time.split(':').map(Number)
+      return (aHour * 60 + aMin) - (bHour * 60 + bMin)
+    })
+
+    const current: typeof todayAppointments = []
+    const upcoming: typeof todayAppointments = []
+
+    sortedAppointments.forEach(apt => {
+      const [hour, minute] = apt.time.split(':').map(Number)
+      const aptTimeInMinutes = hour * 60 + minute
+
+      // Consider appointments within 30 minutes of current time as current
+      if (aptTimeInMinutes <= currentTimeInMinutes + 30) {
+        current.push(apt)
+      } else {
+        upcoming.push(apt)
+      }
+    })
+
+    return {
+      currentAppointments: current.slice(0, 5), // First 5 current/past appointments
+      upcomingAppointments: upcoming.slice(0, 4), // Next 4 upcoming appointments
+    }
   }, [todayAppointments])
 
   return (
@@ -95,17 +126,17 @@ export default function SecretaireDashboard() {
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="glass-card p-6 rounded-xl space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold">Rendez-vous du jour</h2>
+              <h2 className="text-xl font-semibold">Rendez-vous en cours</h2>
               <Activity className="h-5 w-5 text-primary" />
             </div>
 
             <div className="space-y-3">
               {isLoading ? (
                 <p className="text-center text-muted-foreground py-4">Chargement...</p>
-              ) : upcomingAppointments.length === 0 ? (
-                <p className="text-center text-muted-foreground py-4">Aucun rendez-vous aujourd'hui</p>
+              ) : currentAppointments.length === 0 ? (
+                <p className="text-center text-muted-foreground py-4">Aucun rendez-vous en cours</p>
               ) : (
-                upcomingAppointments.map((rdv) => (
+                currentAppointments.map((rdv) => (
                   <div
                     key={rdv.id}
                     className="flex items-center justify-between p-3 bg-background/50 rounded-lg border border-border/50 hover:border-primary/50 transition-colors"
@@ -121,10 +152,10 @@ export default function SecretaireDashboard() {
                     </div>
                     <span
                       className={`px-2 py-1 text-xs font-medium rounded-full ${rdv.status === "confirmé"
-                          ? "bg-success/10 text-success border border-success/20"
-                          : rdv.status === "en_attente"
-                            ? "bg-warning/10 text-warning border border-warning/20"
-                            : "bg-destructive/10 text-destructive border border-destructive/20"
+                        ? "bg-success/10 text-success border border-success/20"
+                        : rdv.status === "en_attente"
+                          ? "bg-warning/10 text-warning border border-warning/20"
+                          : "bg-destructive/10 text-destructive border border-destructive/20"
                         }`}
                     >
                       {rdv.status}
@@ -140,10 +171,10 @@ export default function SecretaireDashboard() {
             <div className="space-y-3">
               {isLoading ? (
                 <p className="text-center text-muted-foreground py-4">Chargement...</p>
-              ) : todayAppointments.slice(5, 9).length === 0 ? (
-                <p className="text-center text-muted-foreground py-4">Aucun autre rendez-vous</p>
+              ) : upcomingAppointments.length === 0 ? (
+                <p className="text-center text-muted-foreground py-4">Aucun rendez-vous à venir</p>
               ) : (
-                todayAppointments.slice(5, 9).map((apt, idx) => (
+                upcomingAppointments.map((apt, idx) => (
                   <div
                     key={apt.id}
                     className="flex items-center justify-between p-3 bg-background/50 rounded-lg border border-border/50"

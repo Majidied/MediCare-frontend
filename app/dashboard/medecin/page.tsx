@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -9,22 +9,62 @@ import { rdvApi, type RDVResponse, type StatutRDV } from "@/api/rdv.api"
 import { consultationApi, type ConsultationSummaryDTO, type MedecinWeeklyStatsDTO } from "@/api/consultation.api"
 import { useAuth } from "@/lib/auth-context"
 import { useQuery } from "@tanstack/react-query"
-import { AlertCircle, CheckCircle, Clock, Loader2, Search, Stethoscope, Users, Calendar, FileText } from "lucide-react"
+import { AlertCircle, CheckCircle, Clock, Loader2, Search, Stethoscope, Users, Calendar, FileText, Bell } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { getNotificationWebSocket, type NotificationMessage } from "@/lib/notification.websocket"
+import { useToast } from "@/hooks/use-toast"
 
 export default function MedecinDashboard() {
   const router = useRouter()
-  const today = new Date().toISOString().split("T")[0]
-  const cabinetId = Number(process.env.NEXT_PUBLIC_DEFAULT_CABINET_ID ?? 1) || 1
+  const { toast } = useToast()
   const { user } = useAuth()
+  const today = new Date().toISOString().split("T")[0]
+
+  // Get cabinetId from authenticated user, fallback to env variable
+  const cabinetId = user?.cabinetId ?? (Number(process.env.NEXT_PUBLIC_DEFAULT_CABINET_ID ?? 1) || 1)
   const medecinIdFromUser = Number(user?.id)
   const medecinIdEnv = Number(process.env.NEXT_PUBLIC_MEDECIN_ID ?? process.env.NEXT_PUBLIC_DEFAULT_MEDECIN_ID ?? 0)
   const medecinId = Number.isFinite(medecinIdFromUser) && medecinIdFromUser > 0 ? medecinIdFromUser : medecinIdEnv || 1
   const recentLimit = 5
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
   useEffect(() => {
     console.log("[MedecinDashboard] userId (Keycloak sub):", user?.id, "medecinId utilisé:", medecinId)
   }, [user?.id, medecinId])
+
+  // WebSocket connection for real-time notifications
+  useEffect(() => {
+    if (!medecinId || medecinId <= 0) return
+
+    const wsClient = getNotificationWebSocket()
+
+    // Handle incoming notifications
+    const handleNotification = (notification: NotificationMessage) => {
+      console.log('[WebSocket] Received notification:', notification)
+
+      // Play sound alert
+      if (audioRef.current) {
+        audioRef.current.play().catch(err => console.error('Failed to play sound:', err))
+      }
+
+      // Show toast notification
+      toast({
+        title: notification.title,
+        description: notification.content,
+        duration: 10000, // 10 seconds
+      })
+    }
+
+    // Connect to WebSocket
+    wsClient.connect(String(medecinId), handleNotification)
+    console.log('[WebSocket] Connected for doctor ID:', medecinId)
+
+    // Cleanup on unmount
+    return () => {
+      wsClient.disconnect()
+      console.log('[WebSocket] Disconnected')
+    }
+  }, [medecinId, toast])
 
   const {
     data: todayAppointments = [],
@@ -183,6 +223,11 @@ export default function MedecinDashboard() {
 
   return (
     <DashboardLayout>
+      {/* Hidden audio element for notification sound */}
+      <audio ref={audioRef} preload="auto">
+        <source src="/notification-sound.mp3" type="audio/mpeg" />
+      </audio>
+
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -318,8 +363,8 @@ export default function MedecinDashboard() {
                   </div>
                 ))}
             </div>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               className="w-full mt-4 border-primary/20 bg-transparent"
               onClick={() => router.push('/dashboard/medecin/patients')}
             >

@@ -23,7 +23,7 @@ import { toast } from "sonner"
 import { useUsers, useCreateUser, useUpdateUser, useDeactivateUser } from "@/hooks/use-user"
 import { useActiveClinics } from "@/hooks/use-clinic"
 import type { UserDTO, UserRole, CreateUserRequest } from "@/api/user.api"
-import { validateName, validateEmail, validatePhoneGeneral, validatePassword } from "@/lib/validation.utils"
+import { validateName, validateEmail, validatePhoneGeneral, validatePassword, PASSWORD_MIN_LENGTH } from "@/lib/validation.utils"
 
 type FormErrors = {
   firstName?: string
@@ -37,7 +37,9 @@ type FormErrors = {
 
 const validateForm = (
   data: { firstName: string; lastName: string; login: string; phoneNumber: string; password: string; role: string; clinicId: number | null },
+  users: UserDTO[] = [],
   isEdit = false,
+  editingUserId?: number
 ): FormErrors => {
   const errors: FormErrors = {}
 
@@ -70,6 +72,24 @@ const validateForm = (
   // Validate clinic for MEDCIN and SECRETAIRE roles
   if ((data.role === "MEDCIN" || data.role === "SECRETAIRE") && !data.clinicId) {
     errors.clinicId = "La clinique est obligatoire pour ce rôle"
+  }
+
+  // Validate that clinic doesn't already have a doctor/secretary
+  if (data.clinicId && (data.role === "MEDCIN" || data.role === "SECRETAIRE")) {
+    const existingUsersInClinic = users.filter(user => 
+      user.clinicId === data.clinicId && 
+      user.role === data.role &&
+      user.active &&
+      (!isEdit || user.id !== editingUserId)
+    )
+    
+    if (existingUsersInClinic.length > 0) {
+      if (data.role === "MEDCIN") {
+        errors.clinicId = "Cette clinique a déjà un médecin assigné"
+      } else if (data.role === "SECRETAIRE") {
+        errors.clinicId = "Cette clinique a déjà une secrétaire assignée"
+      }
+    }
   }
 
   return errors
@@ -117,7 +137,7 @@ export default function UsersPage() {
   }
 
   const handleCreateUser = async () => {
-    const errors = validateForm(formData)
+    const errors = validateForm(formData, users)
     setFormErrors(errors)
 
     if (Object.keys(errors).length > 0) {
@@ -155,7 +175,7 @@ export default function UsersPage() {
   const handleEditUser = async () => {
     if (!editingUser?.id) return
 
-    const errors = validateForm(formData, true)
+    const errors = validateForm(formData, users, true, editingUser.id)
     setFormErrors(errors)
 
     if (Object.keys(errors).length > 0) {

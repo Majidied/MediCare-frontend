@@ -43,6 +43,10 @@ export const REGEX_PATTERNS = {
   URL: /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?$/,
 }
 
+// ==================== VALIDATION CONSTANTS ====================
+
+export const PASSWORD_MIN_LENGTH = 6 // Minimum password length for medium strength validation
+
 // ==================== VALIDATION FUNCTIONS ====================
 
 /**

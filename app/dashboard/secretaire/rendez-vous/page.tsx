@@ -178,6 +178,29 @@ export default function RendezVousPage() {
       newErrors.notes = "Les notes sont trop longues (max 500 caractères)"
     }
 
+    // Validate appointment date/time is not in the past
+    if (selectedSlot) {
+      const appointmentDateTime = new Date(`${selectedSlot.date}T${selectedSlot.time}`)
+      const now = new Date()
+      
+      if (appointmentDateTime < now) {
+        newErrors.slot = "Impossible de prendre un rendez-vous à une date ou heure passée"
+      }
+    }
+
+    // Check if patient already has an appointment on the selected date
+    if (formData.patientId && selectedSlot) {
+      const patientAppointmentsOnDate = appointments.filter(
+        apt => apt.patientId === formData.patientId && 
+               apt.date === selectedSlot.date &&
+               apt.status !== "annulé"
+      )
+      
+      if (patientAppointmentsOnDate.length > 0) {
+        newErrors.patientId = "Ce patient a déjà un rendez-vous programmé pour cette date"
+      }
+    }
+
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -516,6 +539,15 @@ export default function RendezVousPage() {
               <DialogTitle>Nouveau Rendez-vous</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-4">
+              {errors.slot && (
+                <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">
+                  <p className="text-sm text-destructive flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4" />
+                    {errors.slot}
+                  </p>
+                </div>
+              )}
+              
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Calendar className="w-4 h-4" />
                 <span>{selectedSlot?.date}</span>

@@ -119,6 +119,16 @@ export default function UsersPage() {
       user.role.toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
+  // Helper to update form data without causing re-render issues
+  const handleInputChange = (field: string, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
+    if (formErrors[field as keyof FormErrors]) {
+      const newErrors = { ...formErrors }
+      delete newErrors[field as keyof FormErrors]
+      setFormErrors(newErrors)
+    }
+  }
+
   const handleCreateUser = async () => {
     const errors = validateForm(formData)
     setFormErrors(errors)
@@ -305,10 +315,7 @@ export default function UsersPage() {
                       id="firstName"
                       placeholder="Ex: Marie"
                       value={formData.firstName}
-                      onChange={(e) => {
-                        setFormData({ ...formData, firstName: e.target.value })
-                        if (formErrors.firstName) setFormErrors({ ...formErrors, firstName: undefined })
-                      }}
+                      onChange={(e) => handleInputChange('firstName', e.target.value)}
                       className={`glass-card border-border/50 ${formErrors.firstName ? "border-destructive" : ""}`}
                     />
                     {formErrors.firstName && (
@@ -327,10 +334,7 @@ export default function UsersPage() {
                       id="lastName"
                       placeholder="Ex: Dupont"
                       value={formData.lastName}
-                      onChange={(e) => {
-                        setFormData({ ...formData, lastName: e.target.value })
-                        if (formErrors.lastName) setFormErrors({ ...formErrors, lastName: undefined })
-                      }}
+                      onChange={(e) => handleInputChange('lastName', e.target.value)}
                       className={`glass-card border-border/50 ${formErrors.lastName ? "border-destructive" : ""}`}
                     />
                     {formErrors.lastName && (
@@ -351,10 +355,7 @@ export default function UsersPage() {
                     type="email"
                     placeholder="email@cabinetx.com"
                     value={formData.login}
-                    onChange={(e) => {
-                      setFormData({ ...formData, login: e.target.value })
-                      if (formErrors.login) setFormErrors({ ...formErrors, login: undefined })
-                    }}
+                    onChange={(e) => handleInputChange('login', e.target.value)}
                     className={`glass-card border-border/50 ${formErrors.login ? "border-destructive" : ""}`}
                   />
                   {formErrors.login && (
@@ -374,10 +375,7 @@ export default function UsersPage() {
                     type="tel"
                     placeholder="+212 6XX XXX XXX"
                     value={formData.phoneNumber}
-                    onChange={(e) => {
-                      setFormData({ ...formData, phoneNumber: e.target.value })
-                      if (formErrors.phoneNumber) setFormErrors({ ...formErrors, phoneNumber: undefined })
-                    }}
+                    onChange={(e) => handleInputChange('phoneNumber', e.target.value)}
                     className={`glass-card border-border/50 ${formErrors.phoneNumber ? "border-destructive" : ""}`}
                   />
                   {formErrors.phoneNumber && (
@@ -397,10 +395,7 @@ export default function UsersPage() {
                     type="password"
                     placeholder="••••••••"
                     value={formData.password}
-                    onChange={(e) => {
-                      setFormData({ ...formData, password: e.target.value })
-                      if (formErrors.password) setFormErrors({ ...formErrors, password: undefined })
-                    }}
+                    onChange={(e) => handleInputChange('password', e.target.value)}
                     className={`glass-card border-border/50 ${formErrors.password ? "border-destructive" : ""}`}
                   />
                   {formErrors.password && (
@@ -419,8 +414,12 @@ export default function UsersPage() {
                   <Select
                     value={formData.role}
                     onValueChange={(value: UserRole) => {
-                      setFormData({ ...formData, role: value, clinicId: value === "ADMIN" ? null : formData.clinicId })
-                      if (formErrors.clinicId && value === "ADMIN") setFormErrors({ ...formErrors, clinicId: undefined })
+                      setFormData(prev => ({ ...prev, role: value, clinicId: value === "ADMIN" ? null : prev.clinicId }))
+                      if (formErrors.clinicId && value === "ADMIN") {
+                        const newErrors = { ...formErrors }
+                        delete newErrors.clinicId
+                        setFormErrors(newErrors)
+                      }
                     }}
                   >
                     <SelectTrigger className="glass-card border-border/50">
@@ -442,10 +441,7 @@ export default function UsersPage() {
                     </Label>
                     <Select
                       value={formData.clinicId?.toString() ?? ""}
-                      onValueChange={(value) => {
-                        setFormData({ ...formData, clinicId: value ? Number(value) : null })
-                        if (formErrors.clinicId) setFormErrors({ ...formErrors, clinicId: undefined })
-                      }}
+                      onValueChange={(value) => handleInputChange('clinicId', value ? Number(value) : null)}
                     >
                       <SelectTrigger className={`glass-card border-border/50 ${formErrors.clinicId ? "border-destructive" : ""}`}>
                         <SelectValue placeholder="Sélectionner une clinique" />
@@ -626,10 +622,7 @@ export default function UsersPage() {
                     id="edit-firstName"
                     placeholder="Ex: Marie"
                     value={formData.firstName}
-                    onChange={(e) => {
-                      setFormData({ ...formData, firstName: e.target.value })
-                      if (formErrors.firstName) setFormErrors({ ...formErrors, firstName: undefined })
-                    }}
+                    onChange={(e) => handleInputChange('firstName', e.target.value)}
                     className={`glass-card border-border/50 ${formErrors.firstName ? "border-destructive" : ""}`}
                   />
                   {formErrors.firstName && (
@@ -648,10 +641,7 @@ export default function UsersPage() {
                     id="edit-lastName"
                     placeholder="Ex: Dupont"
                     value={formData.lastName}
-                    onChange={(e) => {
-                      setFormData({ ...formData, lastName: e.target.value })
-                      if (formErrors.lastName) setFormErrors({ ...formErrors, lastName: undefined })
-                    }}
+                    onChange={(e) => handleInputChange('lastName', e.target.value)}
                     className={`glass-card border-border/50 ${formErrors.lastName ? "border-destructive" : ""}`}
                   />
                   {formErrors.lastName && (
@@ -672,10 +662,7 @@ export default function UsersPage() {
                   type="email"
                   placeholder="email@cabinetx.com"
                   value={formData.login}
-                  onChange={(e) => {
-                    setFormData({ ...formData, login: e.target.value })
-                    if (formErrors.login) setFormErrors({ ...formErrors, login: undefined })
-                  }}
+                  onChange={(e) => handleInputChange('login', e.target.value)}
                   className={`glass-card border-border/50 ${formErrors.login ? "border-destructive" : ""}`}
                 />
                 {formErrors.login && (
@@ -695,10 +682,7 @@ export default function UsersPage() {
                   type="tel"
                   placeholder="+212 6XX XXX XXX"
                   value={formData.phoneNumber}
-                  onChange={(e) => {
-                    setFormData({ ...formData, phoneNumber: e.target.value })
-                    if (formErrors.phoneNumber) setFormErrors({ ...formErrors, phoneNumber: undefined })
-                  }}
+                  onChange={(e) => handleInputChange('phoneNumber', e.target.value)}
                   className={`glass-card border-border/50 ${formErrors.phoneNumber ? "border-destructive" : ""}`}
                 />
                 {formErrors.phoneNumber && (
@@ -716,10 +700,7 @@ export default function UsersPage() {
                   type="password"
                   placeholder="••••••••"
                   value={formData.password}
-                  onChange={(e) => {
-                    setFormData({ ...formData, password: e.target.value })
-                    if (formErrors.password) setFormErrors({ ...formErrors, password: undefined })
-                  }}
+                  onChange={(e) => handleInputChange('password', e.target.value)}
                   className={`glass-card border-border/50 ${formErrors.password ? "border-destructive" : ""}`}
                 />
                 {formErrors.password && (
@@ -738,8 +719,12 @@ export default function UsersPage() {
                 <Select
                   value={formData.role}
                   onValueChange={(value: UserRole) => {
-                    setFormData({ ...formData, role: value, clinicId: value === "ADMIN" ? null : formData.clinicId })
-                    if (formErrors.clinicId && value === "ADMIN") setFormErrors({ ...formErrors, clinicId: undefined })
+                    setFormData(prev => ({ ...prev, role: value, clinicId: value === "ADMIN" ? null : prev.clinicId }))
+                    if (formErrors.clinicId && value === "ADMIN") {
+                      const newErrors = { ...formErrors }
+                      delete newErrors.clinicId
+                      setFormErrors(newErrors)
+                    }
                   }}
                 >
                   <SelectTrigger className="glass-card border-border/50">
@@ -761,10 +746,7 @@ export default function UsersPage() {
                   </Label>
                   <Select
                     value={formData.clinicId?.toString() ?? ""}
-                    onValueChange={(value) => {
-                      setFormData({ ...formData, clinicId: value ? Number(value) : null })
-                      if (formErrors.clinicId) setFormErrors({ ...formErrors, clinicId: undefined })
-                    }}
+                    onValueChange={(value) => handleInputChange('clinicId', value ? Number(value) : null)}
                   >
                     <SelectTrigger className={`glass-card border-border/50 ${formErrors.clinicId ? "border-destructive" : ""}`}>
                       <SelectValue placeholder="Sélectionner une clinique" />

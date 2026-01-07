@@ -8,12 +8,13 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Search, Plus, Edit2, Trash2, FileText, Calendar, AlertCircle, Loader2 } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { usePatients, useCreatePatient, useUpdatePatient, useDeletePatient } from "@/hooks/use-patient"
 import { Patient, CreatePatientDTO } from "@/api/patient.api"
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/lib/auth-context"
 import { useCurrentUser } from "@/hooks/use-user"
+import { useCallback } from "react"
 
 export default function SecretairePatientsPage() {
   const { user } = useAuth()
@@ -42,8 +43,15 @@ export default function SecretairePatientsPage() {
     adresse: { rue: "", ville: "" },
     typeMutuelle: "AUCUNE",
     sexe: "MASCULIN",
-    cabinetId: 1,
+    cabinetId: cabinetId || 0,
   })
+
+  // Update formData cabinetId when it becomes available
+  useEffect(() => {
+    if (cabinetId && cabinetId !== formData.cabinetId) {
+      setFormData(prev => ({ ...prev, cabinetId: cabinetId }))
+    }
+  }, [cabinetId])
 
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -77,7 +85,7 @@ export default function SecretairePatientsPage() {
       adresse: { rue: "", ville: "" },
       typeMutuelle: "AUCUNE",
       sexe: "MASCULIN",
-      cabinetId: 1,
+      cabinetId: cabinetId,
     })
     setErrors({})
   }
@@ -87,7 +95,25 @@ export default function SecretairePatientsPage() {
     if (!formData.nom.trim()) newErrors.nom = "Le nom est obligatoire"
     if (!formData.prenom.trim()) newErrors.prenom = "Le prénom est obligatoire"
     if (!formData.cin.trim()) newErrors.cin = "Le CIN est obligatoire"
-    if (!formData.dateNaissance) newErrors.dateNaissance = "La date de naissance est obligatoire"
+
+    // Birthday validation
+    if (!formData.dateNaissance) {
+      newErrors.dateNaissance = "La date de naissance est obligatoire"
+    } else {
+      const birthDate = new Date(formData.dateNaissance)
+      const today = new Date()
+      const age = today.getFullYear() - birthDate.getFullYear()
+      const monthDiff = today.getMonth() - birthDate.getMonth()
+
+      if (birthDate > today) {
+        newErrors.dateNaissance = "La date de naissance ne peut pas être dans le futur"
+      } else if (age > 150 || (age === 150 && monthDiff > 0)) {
+        newErrors.dateNaissance = "La date de naissance n'est pas valide"
+      } else if (age < 0) {
+        newErrors.dateNaissance = "La date de naissance n'est pas valide"
+      }
+    }
+
     if (!formData.numTel.trim()) newErrors.numTel = "Le téléphone est obligatoire"
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -147,54 +173,17 @@ export default function SecretairePatientsPage() {
     setIsEditDialogOpen(true)
   }
 
-  const PatientForm = ({ isEdit = false }: { isEdit?: boolean }) => (
-    <div className="space-y-4 py-4">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label>Nom *</Label>
-          <Input value={formData.nom} onChange={(e) => setFormData({ ...formData, nom: e.target.value })} className={errors.nom ? "border-destructive" : ""} />
-          {errors.nom && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.nom}</p>}
-        </div>
-        <div className="space-y-2">
-          <Label>Prénom *</Label>
-          <Input value={formData.prenom} onChange={(e) => setFormData({ ...formData, prenom: e.target.value })} className={errors.prenom ? "border-destructive" : ""} />
-          {errors.prenom && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.prenom}</p>}
-        </div>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label>CIN *</Label>
-          <Input value={formData.cin} onChange={(e) => setFormData({ ...formData, cin: e.target.value })} className={errors.cin ? "border-destructive" : ""} />
-          {errors.cin && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.cin}</p>}
-        </div>
-        <div className="space-y-2">
-          <Label>Date de naissance *</Label>
-          <Input type="date" value={formData.dateNaissance} onChange={(e) => setFormData({ ...formData, dateNaissance: e.target.value })} className={errors.dateNaissance ? "border-destructive" : ""} />
-          {errors.dateNaissance && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.dateNaissance}</p>}
-        </div>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label>Téléphone *</Label>
-          <Input value={formData.numTel} onChange={(e) => setFormData({ ...formData, numTel: e.target.value })} placeholder="+212 6 12 34 56 78" className={errors.numTel ? "border-destructive" : ""} />
-          {errors.numTel && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.numTel}</p>}
-        </div>
-        <div className="space-y-2">
-          <Label>Mutuelle</Label>
-          <select
-            value={formData.typeMutuelle || "AUCUNE"}
-            onChange={(e) => setFormData({ ...formData, typeMutuelle: e.target.value as "CNSS" | "CNOPS" | "PRIVEE" | "AUCUNE" })}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            <option value="AUCUNE">Aucune</option>
-            <option value="CNSS">CNSS</option>
-            <option value="CNOPS">CNOPS</option>
-            <option value="PRIVEE">Privée</option>
-          </select>
-        </div>
-      </div>
-    </div>
-  )
+  const handleInputChange = useCallback((field: keyof CreatePatientDTO, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
+    setErrors(prev => {
+      if (prev[field]) {
+        const newErrors = { ...prev }
+        delete newErrors[field]
+        return newErrors
+      }
+      return prev
+    })
+  }, [])
 
   return (
     <DashboardLayout>
@@ -221,7 +210,75 @@ export default function SecretairePatientsPage() {
                 <DialogHeader>
                   <DialogTitle>Créer un nouveau patient</DialogTitle>
                 </DialogHeader>
-                <PatientForm />
+                <div className="space-y-4 py-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Nom *</Label>
+                      <Input
+                        value={formData.nom}
+                        onChange={(e) => handleInputChange('nom', e.target.value)}
+                        className={errors.nom ? "border-destructive" : ""}
+                      />
+                      {errors.nom && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.nom}</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Prénom *</Label>
+                      <Input
+                        value={formData.prenom}
+                        onChange={(e) => handleInputChange('prenom', e.target.value)}
+                        className={errors.prenom ? "border-destructive" : ""}
+                      />
+                      {errors.prenom && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.prenom}</p>}
+                    </div>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>CIN *</Label>
+                      <Input
+                        value={formData.cin}
+                        onChange={(e) => handleInputChange('cin', e.target.value)}
+                        className={errors.cin ? "border-destructive" : ""}
+                      />
+                      {errors.cin && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.cin}</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Date de naissance *</Label>
+                      <Input
+                        type="date"
+                        value={formData.dateNaissance}
+                        onChange={(e) => handleInputChange('dateNaissance', e.target.value)}
+                        max={new Date().toISOString().split('T')[0]}
+                        className={errors.dateNaissance ? "border-destructive" : ""}
+                      />
+                      {errors.dateNaissance && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.dateNaissance}</p>}
+                    </div>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Téléphone *</Label>
+                      <Input
+                        value={formData.numTel}
+                        onChange={(e) => handleInputChange('numTel', e.target.value)}
+                        placeholder="+212 6 12 34 56 78"
+                        className={errors.numTel ? "border-destructive" : ""}
+                      />
+                      {errors.numTel && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.numTel}</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Mutuelle</Label>
+                      <select
+                        value={formData.typeMutuelle || "AUCUNE"}
+                        onChange={(e) => handleInputChange('typeMutuelle', e.target.value as "CNSS" | "CNOPS" | "PRIVEE" | "AUCUNE")}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      >
+                        <option value="AUCUNE">Aucune</option>
+                        <option value="CNSS">CNSS</option>
+                        <option value="CNOPS">CNOPS</option>
+                        <option value="PRIVEE">Privée</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>Annuler</Button>
                   <Button onClick={handleCreate} disabled={createMutation.isPending}>
@@ -332,7 +389,75 @@ export default function SecretairePatientsPage() {
               <DialogHeader>
                 <DialogTitle>Modifier le patient</DialogTitle>
               </DialogHeader>
-              <PatientForm isEdit />
+              <div className="space-y-4 py-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Nom *</Label>
+                    <Input
+                      value={formData.nom}
+                      onChange={(e) => handleInputChange('nom', e.target.value)}
+                      className={errors.nom ? "border-destructive" : ""}
+                    />
+                    {errors.nom && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.nom}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Prénom *</Label>
+                    <Input
+                      value={formData.prenom}
+                      onChange={(e) => handleInputChange('prenom', e.target.value)}
+                      className={errors.prenom ? "border-destructive" : ""}
+                    />
+                    {errors.prenom && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.prenom}</p>}
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>CIN *</Label>
+                    <Input
+                      value={formData.cin}
+                      onChange={(e) => handleInputChange('cin', e.target.value)}
+                      className={errors.cin ? "border-destructive" : ""}
+                    />
+                    {errors.cin && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.cin}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Date de naissance *</Label>
+                    <Input
+                      type="date"
+                      value={formData.dateNaissance}
+                      onChange={(e) => handleInputChange('dateNaissance', e.target.value)}
+                      max={new Date().toISOString().split('T')[0]}
+                      className={errors.dateNaissance ? "border-destructive" : ""}
+                    />
+                    {errors.dateNaissance && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.dateNaissance}</p>}
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Téléphone *</Label>
+                    <Input
+                      value={formData.numTel}
+                      onChange={(e) => handleInputChange('numTel', e.target.value)}
+                      placeholder="+212 6 12 34 56 78"
+                      className={errors.numTel ? "border-destructive" : ""}
+                    />
+                    {errors.numTel && <p className="text-xs text-destructive flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.numTel}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Mutuelle</Label>
+                    <select
+                      value={formData.typeMutuelle || "AUCUNE"}
+                      onChange={(e) => handleInputChange('typeMutuelle', e.target.value as "CNSS" | "CNOPS" | "PRIVEE" | "AUCUNE")}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      <option value="AUCUNE">Aucune</option>
+                      <option value="CNSS">CNSS</option>
+                      <option value="CNOPS">CNOPS</option>
+                      <option value="PRIVEE">Privée</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Annuler</Button>
                 <Button onClick={handleEdit} disabled={updateMutation.isPending}>

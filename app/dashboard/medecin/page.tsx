@@ -7,15 +7,41 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { rdvApi, type RDVResponse, type StatutRDV } from "@/api/rdv.api"
 import { consultationApi, type ConsultationSummaryDTO, type MedecinWeeklyStatsDTO } from "@/api/consultation.api"
+import { patientApi } from "@/api/patient.api"
+import { prescriptionApi } from "@/api/prescription.api"
 import { useAuth } from "@/lib/auth-context"
 import { useQuery } from "@tanstack/react-query"
 import { AlertCircle, CheckCircle, Clock, Loader2, Search, Stethoscope, Users, Calendar, FileText } from "lucide-react"
 import { useRouter } from "next/navigation"
 
+const getCabinetIdFromJwt = () => {
+  if (typeof window === "undefined") return 0
+
+  const rawToken = localStorage.getItem("keycloak_token")
+  if (!rawToken) return 0
+
+  try {
+    const [, payload] = rawToken.split(".")
+    if (!payload) return 0
+
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/")
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")
+    const json = JSON.parse(atob(padded))
+
+    const candidate =
+      json.cabinetId ?? json.cabinet_id ?? json.clinicId ?? json.clinic_id ?? json.cabinet ?? json.clinic
+    const numeric = Number(candidate)
+    return Number.isFinite(numeric) && numeric >= 0 ? numeric : 0
+  } catch (error) {
+    console.error("Impossible de lire cabinetId depuis le JWT:", error)
+    return 0
+  }
+}
+
 export default function MedecinDashboard() {
   const router = useRouter()
   const today = new Date().toISOString().split("T")[0]
-  const cabinetId = Number(process.env.NEXT_PUBLIC_DEFAULT_CABINET_ID ?? 1) || 1
+  const cabinetId = getCabinetIdFromJwt()
   const { user } = useAuth()
   const medecinIdFromUser = Number(user?.id)
   const medecinIdEnv = Number(process.env.NEXT_PUBLIC_MEDECIN_ID ?? process.env.NEXT_PUBLIC_DEFAULT_MEDECIN_ID ?? 0)
@@ -73,18 +99,56 @@ export default function MedecinDashboard() {
     staleTime: 5 * 60 * 1000,
   })
 
+  const {
+    data: patientsByCabinet = [],
+    isLoading: patientsLoading,
+    isError: patientsError,
+  } = useQuery({
+    queryKey: ["patients", "by-cabinet", cabinetId],
+    queryFn: async () => {
+      const { data } = await patientApi.getByCabinet(cabinetId)
+      return data
+    },
+    enabled: cabinetId >= 0,
+    staleTime: 2 * 60 * 1000,
+  })
+
+  const {
+    data: weeklyPrescriptions = [],
+    isLoading: prescriptionsLoading,
+    isError: prescriptionsError,
+  } = useQuery({
+    queryKey: ["prescriptions", "this-week", cabinetId],
+    queryFn: async () => {
+      const { data } = await prescriptionApi.getThisWeekByClinic(cabinetId)
+      return data
+    },
+    enabled: cabinetId >= 0,
+    staleTime: 2 * 60 * 1000,
+  })
+
+  const todayStats = weeklyStats?.daily?.find((day) => day.date === today)
+  const consultationsToday = todayStats?.consultations
+  const presenceRateToday = todayStats?.presenceRate
+  const patientsActiveCount = patientsByCabinet.length
+  const weeklyPrescriptionsCount = weeklyPrescriptions.length
+
   const stats = [
     {
       title: "Consultations du jour",
-      value: "12",
-      change: "+3",
+      value: weeklyStatsLoading ? "—" : String(Math.max(0, consultationsToday ?? 0)),
+      change: weeklyStatsLoading
+        ? "Chargement..."
+        : presenceRateToday !== undefined
+          ? `${Math.round(Math.max(0, presenceRateToday))}% de présence`
+          : "Pas de données du jour",
       icon: Stethoscope,
-      trend: "up",
+      trend: consultationsToday && consultationsToday > 0 ? "up" : "neutral",
     },
     {
       title: "Patients Actifs",
-      value: "248",
-      change: "+15",
+      value: patientsLoading ? "—" : patientsError ? "N/A" : String(patientsActiveCount),
+      change: patientsLoading ? "Chargement..." : patientsError ? "Erreur lors du chargement" : "Dans le cabinet",
       icon: Users,
       trend: "up",
     },
@@ -99,8 +163,8 @@ export default function MedecinDashboard() {
     },
     {
       title: "Ordonnances",
-      value: "34",
-      change: "Cette semaine",
+      value: prescriptionsLoading ? "—" : prescriptionsError ? "N/A" : String(weeklyPrescriptionsCount),
+      change: prescriptionsLoading ? "Chargement..." : "Cette semaine",
       icon: FileText,
       trend: "up",
     },

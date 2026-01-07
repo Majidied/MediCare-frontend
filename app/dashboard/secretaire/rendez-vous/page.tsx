@@ -92,7 +92,7 @@ export default function RendezVousPage() {
   // API hooks
   const selectedDateStr = formatDate(selectedDate)
   const { data: appointmentsData = [], isLoading } = useAppointmentsByDate(selectedDateStr, cabinetId)
-  const { data: patients = [], isLoading: isLoadingPatients } = usePatients()
+  const { data: patients = [], isLoading: isLoadingPatients } = usePatients(cabinetId)
   const createMutation = useCreateAppointment()
   const updateMutation = useUpdateAppointment()
   const deleteMutation = useDeleteAppointment()

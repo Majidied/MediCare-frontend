@@ -33,6 +33,9 @@ export const patientApi = {
     getAll: (nom?: string, prenom?: string) =>
         apiClient.get<Patient[]>('/api/patients', { params: { nom, prenom } }),
 
+    getByCabinet: (cabinetId: number) =>
+        apiClient.get<Patient[]>(`/api/patients/by-cabinet/${cabinetId}`),
+
     getById: (id: number) =>
         apiClient.get<Patient>(`/api/patients/${id}`),
 

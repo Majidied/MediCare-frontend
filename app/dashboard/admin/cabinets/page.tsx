@@ -29,6 +29,13 @@ import {
 import { useState, useEffect } from "react"
 import { useToast } from "@/hooks/use-toast"
 import { clinicApi, type ClinicDTO, type ClinicStatus } from "@/api/clinic.api"
+import {
+  validateRequired,
+  validatePhoneMorocco,
+  validateAddress,
+  validateURL,
+  validateFutureDate,
+} from "@/lib/validation.utils"
 
 export default function CabinetsPage() {
   const [clinics, setClinics] = useState<ClinicDTO[]>([])
@@ -83,12 +90,32 @@ export default function CabinetsPage() {
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {}
-    console.log("Validating form data:", formData)
-    if (!formData.name.trim()) newErrors.name = "Le nom du cabinet est requis"
-    if (!formData.specialty.trim()) newErrors.specialty = "La spécialité est requise"
-    if (!formData.address.trim()) newErrors.address = "L'adresse est requise"
-    if (!formData.phone.trim()) newErrors.phone = "Le téléphone est requis"
-    if (!formData.serviceEndDate) newErrors.serviceEndDate = "La date de fin de service est requise"
+    
+    // Validate name
+    const nameValidation = validateRequired(formData.name, "Le nom du cabinet", 2, 100)
+    if (!nameValidation.valid) newErrors.name = nameValidation.error!
+    
+    // Validate specialty
+    const specialtyValidation = validateRequired(formData.specialty, "La spécialité", 2, 100)
+    if (!specialtyValidation.valid) newErrors.specialty = specialtyValidation.error!
+    
+    // Validate address
+    const addressValidation = validateAddress(formData.address)
+    if (!addressValidation.valid) newErrors.address = addressValidation.error!
+    
+    // Validate phone
+    const phoneValidation = validatePhoneMorocco(formData.phone)
+    if (!phoneValidation.valid) newErrors.phone = phoneValidation.error!
+    
+    // Validate logo URL (optional)
+    if (formData.logoUrl) {
+      const urlValidation = validateURL(formData.logoUrl, false)
+      if (!urlValidation.valid) newErrors.logoUrl = urlValidation.error!
+    }
+    
+    // Validate service end date
+    const dateValidation = validateFutureDate(formData.serviceEndDate, "date de fin de service")
+    if (!dateValidation.valid) newErrors.serviceEndDate = dateValidation.error!
 
     console.log("Validation errors:", newErrors)
     setErrors(newErrors)

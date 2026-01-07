@@ -15,6 +15,14 @@ import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/lib/auth-context"
 import { useCurrentUser } from "@/hooks/use-user"
 import { useCallback } from "react"
+import {
+  validateName,
+  validateCIN,
+  validateDateOfBirth,
+  validatePhoneMorocco,
+  validateAddress,
+  sanitizeInput,
+} from "@/lib/validation.utils"
 
 export default function SecretairePatientsPage() {
   const { user } = useAuth()
@@ -92,29 +100,37 @@ export default function SecretairePatientsPage() {
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {}
-    if (!formData.nom.trim()) newErrors.nom = "Le nom est obligatoire"
-    if (!formData.prenom.trim()) newErrors.prenom = "Le prénom est obligatoire"
-    if (!formData.cin.trim()) newErrors.cin = "Le CIN est obligatoire"
-
-    // Birthday validation
-    if (!formData.dateNaissance) {
-      newErrors.dateNaissance = "La date de naissance est obligatoire"
-    } else {
-      const birthDate = new Date(formData.dateNaissance)
-      const today = new Date()
-      const age = today.getFullYear() - birthDate.getFullYear()
-      const monthDiff = today.getMonth() - birthDate.getMonth()
-
-      if (birthDate > today) {
-        newErrors.dateNaissance = "La date de naissance ne peut pas être dans le futur"
-      } else if (age > 150 || (age === 150 && monthDiff > 0)) {
-        newErrors.dateNaissance = "La date de naissance n'est pas valide"
-      } else if (age < 0) {
-        newErrors.dateNaissance = "La date de naissance n'est pas valide"
-      }
+    
+    // Validate name
+    const nomValidation = validateName(formData.nom, "nom")
+    if (!nomValidation.valid) newErrors.nom = nomValidation.error!
+    
+    // Validate first name
+    const prenomValidation = validateName(formData.prenom, "prénom")
+    if (!prenomValidation.valid) newErrors.prenom = prenomValidation.error!
+    
+    // Validate CIN
+    const cinValidation = validateCIN(formData.cin)
+    if (!cinValidation.valid) newErrors.cin = cinValidation.error!
+    
+    // Validate date of birth
+    const dobValidation = validateDateOfBirth(formData.dateNaissance)
+    if (!dobValidation.valid) newErrors.dateNaissance = dobValidation.error!
+    
+    // Validate phone number
+    const phoneValidation = validatePhoneMorocco(formData.numTel)
+    if (!phoneValidation.valid) newErrors.numTel = phoneValidation.error!
+    
+    // Validate address (optional but if provided, must be valid)
+    if (formData.adresse?.rue) {
+      const addressValidation = validateAddress(formData.adresse.rue)
+      if (!addressValidation.valid) newErrors.adresse = addressValidation.error!
+    }
+    
+    if (formData.adresse?.ville && formData.adresse.ville.trim().length < 2) {
+      newErrors.ville = "La ville doit contenir au moins 2 caractères"
     }
 
-    if (!formData.numTel.trim()) newErrors.numTel = "Le téléphone est obligatoire"
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }

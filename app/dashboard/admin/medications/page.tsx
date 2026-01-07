@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Plus, Search, Edit, Trash2, Pill, AlertCircle, Loader2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { medicationApi, type MedicationDTO } from "@/api/medication.api"
+import { validateRequired, validateDosage, sanitizeInput } from "@/lib/validation.utils"
 
 // Form component moved outside to prevent recreation on every render
 const MedicationForm = ({
@@ -148,28 +149,26 @@ export default function MedicationsPage() {
   const validateForm = () => {
     const newErrors: Record<string, string> = {}
 
-    if (!formData.commercialName.trim()) {
-      newErrors.commercialName = "Le nom commercial est obligatoire"
-    } else if (formData.commercialName.trim().length < 2) {
-      newErrors.commercialName = "Le nom doit contenir au moins 2 caractères"
-    }
+    // Validate commercial name
+    const nameValidation = validateRequired(formData.commercialName, "Le nom commercial", 2, 100)
+    if (!nameValidation.valid) newErrors.commercialName = nameValidation.error!
 
-    if (!formData.dci.trim()) {
-      newErrors.dci = "La DCI est obligatoire"
-    }
+    // Validate DCI
+    const dciValidation = validateRequired(formData.dci, "La DCI", 2, 100)
+    if (!dciValidation.valid) newErrors.dci = dciValidation.error!
 
-    if (!formData.dosage.trim()) {
-      newErrors.dosage = "Le dosage est obligatoire"
-    }
+    // Validate dosage with specific format
+    const dosageValidation = validateDosage(formData.dosage)
+    if (!dosageValidation.valid) newErrors.dosage = dosageValidation.error!
 
-    if (!formData.form.trim()) {
-      newErrors.form = "La forme est obligatoire"
-    }
+    // Validate form (pharmaceutical form)
+    const formValidation = validateRequired(formData.form, "La forme pharmaceutique", 2, 50)
+    if (!formValidation.valid) newErrors.form = formValidation.error!
 
     // Check for duplicate medication name (except when editing)
     const isDuplicate = medications.some(
       (med) =>
-        med.commercialName.toLowerCase() === formData.commercialName.toLowerCase().trim() &&
+        med.commercialName.toLowerCase() === sanitizeInput(formData.commercialName).toLowerCase() &&
         (!editingMedication || med.id !== editingMedication.id),
     )
 

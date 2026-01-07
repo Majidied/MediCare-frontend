@@ -25,6 +25,7 @@ import { appointmentHelpers, MotifRDV } from "@/api/appointment.api"
 import { getLocalDateString } from "@/lib/date.utils"
 import { useAuth } from "@/lib/auth-context"
 import { useCurrentUser } from "@/hooks/use-user"
+import { validateRequired } from "@/lib/validation.utils"
 
 interface Appointment {
   id: string
@@ -167,8 +168,14 @@ export default function RendezVousPage() {
     if (!formData.patientId) {
       newErrors.patientId = "Veuillez sélectionner un patient"
     }
-    if (!formData.motif.trim()) {
-      newErrors.motif = "Le motif est obligatoire"
+    
+    // Validate motif
+    const motifValidation = validateRequired(formData.motif, "Le motif", 2, 200)
+    if (!motifValidation.valid) newErrors.motif = motifValidation.error!
+
+    // Notes are optional, but if provided, validate length
+    if (formData.notes && formData.notes.length > 500) {
+      newErrors.notes = "Les notes sont trop longues (max 500 caractères)"
     }
 
     setErrors(newErrors)

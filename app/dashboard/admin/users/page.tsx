@@ -23,6 +23,7 @@ import { toast } from "sonner"
 import { useUsers, useCreateUser, useUpdateUser, useDeactivateUser } from "@/hooks/use-user"
 import { useActiveClinics } from "@/hooks/use-clinic"
 import type { UserDTO, UserRole, CreateUserRequest } from "@/api/user.api"
+import { validateName, validateEmail, validatePhoneGeneral, validatePassword } from "@/lib/validation.utils"
 
 type FormErrors = {
   firstName?: string
@@ -34,46 +35,32 @@ type FormErrors = {
   clinicId?: string
 }
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const PASSWORD_MIN_LENGTH = 6
-const PHONE_REGEX = /^[0-9+\s-]{8,}$/
-
 const validateForm = (
   data: { firstName: string; lastName: string; login: string; phoneNumber: string; password: string; role: string; clinicId: number | null },
   isEdit = false,
 ): FormErrors => {
   const errors: FormErrors = {}
 
-  if (!data.firstName.trim()) {
-    errors.firstName = "Le prénom est obligatoire"
-  } else if (data.firstName.trim().length < 2) {
-    errors.firstName = "Le prénom doit contenir au moins 2 caractères"
-  }
+  // Validate first name
+  const firstNameValidation = validateName(data.firstName, "prénom")
+  if (!firstNameValidation.valid) errors.firstName = firstNameValidation.error!
 
-  if (!data.lastName.trim()) {
-    errors.lastName = "Le nom est obligatoire"
-  } else if (data.lastName.trim().length < 2) {
-    errors.lastName = "Le nom doit contenir au moins 2 caractères"
-  }
+  // Validate last name
+  const lastNameValidation = validateName(data.lastName, "nom")
+  if (!lastNameValidation.valid) errors.lastName = lastNameValidation.error!
 
-  if (!data.login.trim()) {
-    errors.login = "L'email est obligatoire"
-  } else if (!EMAIL_REGEX.test(data.login)) {
-    errors.login = "Format d'email invalide"
-  }
+  // Validate email
+  const emailValidation = validateEmail(data.login)
+  if (!emailValidation.valid) errors.login = emailValidation.error!
 
-  if (!data.phoneNumber.trim()) {
-    errors.phoneNumber = "Le numéro de téléphone est obligatoire"
-  } else if (!PHONE_REGEX.test(data.phoneNumber)) {
-    errors.phoneNumber = "Format de téléphone invalide"
-  }
+  // Validate phone number
+  const phoneValidation = validatePhoneGeneral(data.phoneNumber)
+  if (!phoneValidation.valid) errors.phoneNumber = phoneValidation.error!
 
+  // Validate password (only if not editing or if password is provided)
   if (!isEdit || data.password) {
-    if (!data.password) {
-      errors.password = "Le mot de passe est obligatoire"
-    } else if (data.password.length < PASSWORD_MIN_LENGTH) {
-      errors.password = `Le mot de passe doit contenir au moins ${PASSWORD_MIN_LENGTH} caractères`
-    }
+    const passwordValidation = validatePassword(data.password, 'medium')
+    if (!passwordValidation.valid) errors.password = passwordValidation.error!
   }
 
   if (!data.role) {

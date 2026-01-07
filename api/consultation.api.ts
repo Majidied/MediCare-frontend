@@ -80,7 +80,11 @@ export const consultationApi = {
     params?: { cabinetId?: number; startDate?: string; endDate?: string },
   ) => apiClient.get<MedecinWeeklyStatsDTO>(`/api/consultations/stats/medecin/${medecinId}/weekly`, { params }),
   update: (consultationId: number, dto: Partial<ConsultationDTO>) =>
-    apiClient.put<ConsultationDTO>(`/api/consultations/${consultationId}`, dto),
+    apiClient.put<ConsultationDTO>(`/api/consultations/${consultationId}`, dto).then((res) => {
+      console.log("[consultationApi.update] payload:", dto)
+      console.log("[consultationApi.update] response:", res.data)
+      return res
+    }),
   create: (dto: Partial<ConsultationDTO>) => apiClient.post<ConsultationDTO>(`/api/consultations`, dto),
   delete: (consultationId: number) => apiClient.delete(`/api/consultations/${consultationId}`),
 }

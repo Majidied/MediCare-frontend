@@ -13,6 +13,8 @@ import { useNotifications } from "@/lib/notifications-context"
 import { useAuth } from "@/lib/auth-context"
 import { consultationApi, type ConsultationDTO, type ConsultationSummaryDTO } from "@/api/consultation.api"
 import { rdvApi, type StatutRDV } from "@/api/rdv.api"
+import { medicationApi, type MedicationDTO } from "@/api/medication.api"
+import { prescriptionApi, type PrescriptionDTO, type PrescriptionLineDTO } from "@/api/prescription.api"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   User,
@@ -36,7 +38,6 @@ import { useParams } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
 import { usePatient } from "@/hooks/use-patient"
 import { type Patient } from "@/api/patient.api"
-import { MOCK_MEDICATIONS, type Ordonnance } from "@/lib/mock-data"
 
 export default function PatientDetailsPage() {
   type ConsultationViewModel = ConsultationSummaryDTO & {
@@ -45,7 +46,7 @@ export default function PatientDetailsPage() {
     traitement?: string
     observations?: string
     status?: string
-    ordonnance?: Ordonnance
+    prescription?: PrescriptionDTO
   }
 
   const params = useParams<{ id: string }>()
@@ -71,6 +72,24 @@ export default function PatientDetailsPage() {
       return data
     },
     enabled: isValidPatientId,
+    refetchOnWindowFocus: false,
+  })
+  const { data: medications = [], isLoading: medicationsLoading, isError: medicationsError } = useQuery({
+    queryKey: ["medications", "all"],
+    queryFn: async () => {
+      const { data } = await medicationApi.getAll()
+      return data
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+  const { data: patientPrescriptions = [], isLoading: prescriptionsLoading } = useQuery({
+    queryKey: ["prescriptions", "patient", patientId],
+    queryFn: async () => {
+      const { data } = await prescriptionApi.getByPatient(patientId)
+      return data
+    },
+    enabled: isValidPatientId,
+    staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: false,
   })
   const {
@@ -113,7 +132,7 @@ export default function PatientDetailsPage() {
     observations: "",
   })
   const [selectedMedications, setSelectedMedications] = useState<
-    Array<{ medicationId: string; posologie: string; duree: string }>
+    Array<{ medicationId: number | ""; posologie: string; duree: string; commentaire?: string }>
   >([])
 
   const updateConsultationsState = (
@@ -134,9 +153,13 @@ export default function PatientDetailsPage() {
 
   useEffect(() => {
     if (consultationsData) {
-      updateConsultationsState(consultationsData)
+      const merged = consultationsData.map((c) => ({
+        ...c,
+        prescription: patientPrescriptions.find((p) => p.consultationId === c.id),
+      }))
+      updateConsultationsState(merged)
     }
-  }, [consultationsData])
+  }, [consultationsData, patientPrescriptions])
 
   if (!isValidPatientId) {
     return (
@@ -202,25 +225,59 @@ export default function PatientDetailsPage() {
     const currentRdv = todayRdv as NonNullable<typeof todayRdv>
 
     if (isEditMode && editConsultationId) {
-      updateConsultationsState((prev) =>
-        prev.map((c) =>
-          c.id === Number(editConsultationId)
-            ? {
-                ...c,
-                dateConsultation: newConsultation.dateConsultation,
-                type: newConsultation.type,
-                diagnostic: newConsultation.diagnostic,
-                traitement: newConsultation.traitement,
-                observations: newConsultation.observations,
-              }
-            : c,
-        ),
-      )
+      const existing = consultations.find((c) => c.id === Number(editConsultationId))
+      if (!existing) {
+        toast({ title: "Erreur", description: "Consultation introuvable", variant: "destructive" })
+        return
+      }
 
-      toast({
-        title: "Consultation modifiée",
-        description: "La consultation a été mise à jour avec succès",
-      })
+      const rendezVousIdToSend = existing.rendezVousId ?? todayRdv?.id
+      if (!rendezVousIdToSend) {
+        toast({
+          title: "Rendez-vous manquant",
+          description: "Impossible de mettre à jour sans identifiant de rendez-vous.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      try {
+        const payload: Partial<ConsultationDTO> = {
+          id: existing.id,
+          rendezVousId: rendezVousIdToSend,
+          patientId,
+          medecinId: existing.medecinId ?? medecinId,
+          cabinetId: (patient as Patient).cabinetId ?? 0,
+          type: newConsultation.type,
+          dateConsultation: newConsultation.dateConsultation,
+          diagnostic: newConsultation.diagnostic,
+          traitement: newConsultation.traitement,
+          observations: newConsultation.observations,
+          examenClinique: existing.examenClinique,
+          examenSupplementaire: existing.examenSupplementaire,
+          archived: existing.archived,
+          archivedAt: existing.archivedAt,
+        }
+
+        const updated = await updateConsultationMutation.mutateAsync({
+          consultationId: Number(editConsultationId),
+          payload,
+        })
+
+        updateConsultationsState((prev) => prev.map((c) => (c.id === Number(editConsultationId) ? { ...c, ...updated } : c)))
+
+        toast({
+          title: "Consultation modifiée",
+          description: "La consultation a été mise à jour avec succès",
+        })
+      } catch (err: any) {
+        toast({
+          title: "Erreur",
+          description: err?.response?.data?.message || "Impossible de mettre à jour la consultation",
+          variant: "destructive",
+        })
+        return
+      }
     } else {
       try {
         const payload: Partial<ConsultationDTO> = {
@@ -266,8 +323,10 @@ export default function PatientDetailsPage() {
     })
   }
 
-  const handleAddOrdonnance = (consultationId: number) => {
-    if (selectedMedications.length === 0) {
+  const handleAddOrdonnance = async (consultationId: number) => {
+    const validLines = selectedMedications.filter((m) => m.medicationId !== "")
+
+    if (validLines.length === 0) {
       toast({
         title: "Erreur",
         description: "Veuillez sélectionner au moins un médicament",
@@ -279,29 +338,77 @@ export default function PatientDetailsPage() {
     const consultation = consultations.find((c) => c.id === consultationId)
     if (!consultation) return
 
-    const ordonnance: Ordonnance = {
-      id: Date.now().toString(),
-      consultationId: String(consultationId),
-      date: new Date().toISOString().split("T")[0],
-      medications: selectedMedications.map((med) => {
-        const medication = MOCK_MEDICATIONS.find((m) => m.id === med.medicationId)
-        return {
-          name: medication?.name || "",
-          dosage: medication?.dosage || "",
-          posologie: med.posologie,
-          duree: med.duree,
-        }
-      }),
+    const hasExistingPrescription = Boolean(consultation.prescription)
+
+    if (hasExistingPrescription && consultation.prescription?.id) {
+      try {
+        const lastResponse = await validLines.reduce<Promise<PrescriptionDTO>>(async (prevPromise, line) => {
+          await prevPromise
+          const med = medications.find((m) => m.id === Number(line.medicationId))
+          const response = await prescriptionApi.addLine(consultation.prescription!.id!, {
+            medicationId: Number(line.medicationId),
+            dosage: line.posologie,
+            durationDays: Number.parseInt(line.duree, 10) || 0,
+            comment: line.commentaire,
+            lineType: "MEDICATION",
+            medicationName: med?.commercialName,
+          })
+          return response.data
+        }, Promise.resolve(consultation.prescription))
+
+        updateConsultationsState((prev) => prev.map((c) => (c.id === consultationId ? { ...c, prescription: lastResponse } : c)))
+        setOrdonnanceDialogOpen(false)
+        setSelectedMedications([])
+
+        toast({
+          title: "Ordonnance mise à jour",
+          description: "Les lignes ont été ajoutées avec succès",
+        })
+      } catch (err: any) {
+        toast({
+          title: "Erreur",
+          description: err?.response?.data?.message || "Impossible d'ajouter les lignes",
+          variant: "destructive",
+        })
+      }
+    } else {
+      const payload = {
+        consultationId,
+        patientId,
+        doctorId: medecinId,
+        clinicId: (patient as Patient).cabinetId ?? 0,
+        prescriptionDate: new Date().toISOString().split("T")[0],
+        lines: validLines.map((line) => {
+          const med = medications.find((m) => m.id === Number(line.medicationId))
+          return {
+            medicationId: Number(line.medicationId),
+            dosage: line.posologie,
+            durationDays: Number.parseInt(line.duree, 10) || 0,
+            comment: line.commentaire,
+            lineType: "MEDICATION",
+            medicationName: med?.commercialName,
+          }
+        }),
+      }
+
+      try {
+        const { data: created } = await prescriptionApi.create(payload)
+        updateConsultationsState((prev) => prev.map((c) => (c.id === consultationId ? { ...c, prescription: created } : c)))
+        setOrdonnanceDialogOpen(false)
+        setSelectedMedications([])
+
+        toast({
+          title: "Ordonnance créée",
+          description: "L'ordonnance a été enregistrée avec succès",
+        })
+      } catch (err: any) {
+        toast({
+          title: "Erreur",
+          description: err?.response?.data?.message || "Impossible de créer l'ordonnance",
+          variant: "destructive",
+        })
+      }
     }
-
-    updateConsultationsState((prev) => prev.map((c) => (c.id === consultationId ? { ...c, ordonnance } : c)))
-    setOrdonnanceDialogOpen(false)
-    setSelectedMedications([])
-
-    toast({
-      title: "Ordonnance créée",
-      description: "L'ordonnance a été générée avec succès",
-    })
   }
 
   const handleDeleteConsultation = async (consultationId: number) => {
@@ -326,7 +433,7 @@ export default function PatientDetailsPage() {
     }
   }
 
-  const handlePrintOrdonnance = (ordonnance: Ordonnance) => {
+  const handlePrintOrdonnance = (prescription: PrescriptionDTO) => {
     toast({
       title: "Impression",
       description: "L'ordonnance est en cours d'impression...",
@@ -341,7 +448,11 @@ export default function PatientDetailsPage() {
     setSelectedMedications(selectedMedications.filter((_, i) => i !== index))
   }
 
-  const updateMedication = (index: number, field: string, value: string) => {
+  const updateMedication = (
+    index: number,
+    field: "medicationId" | "posologie" | "duree" | "commentaire",
+    value: string | number,
+  ) => {
     const updated = [...selectedMedications]
     updated[index] = { ...updated[index], [field]: value }
     setSelectedMedications(updated)
@@ -713,7 +824,7 @@ export default function PatientDetailsPage() {
                     </div>
 
                     {/* Ordonnance */}
-                    {consultation.ordonnance ? (
+                    {consultation.prescription ? (
                       <div className="mt-4 p-4 rounded-lg bg-primary/5 border border-primary/20">
                         <div className="flex items-center justify-between mb-3">
                           <h4 className="font-semibold flex items-center gap-2">
@@ -723,7 +834,7 @@ export default function PatientDetailsPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handlePrintOrdonnance(consultation.ordonnance!)}
+                            onClick={() => handlePrintOrdonnance(consultation.prescription!)}
                             className="gap-2"
                           >
                             <Printer className="w-4 h-4" />
@@ -731,15 +842,21 @@ export default function PatientDetailsPage() {
                           </Button>
                         </div>
                         <div className="space-y-2">
-                          {consultation.ordonnance.medications.map((med, idx) => (
-                            <div key={idx} className="text-sm p-2 rounded bg-background/50">
-                              <p className="font-medium">
-                                {med.name} - {med.dosage}
-                              </p>
-                              <p className="text-muted-foreground text-xs">{med.posologie}</p>
-                              <p className="text-muted-foreground text-xs">Durée: {med.duree}</p>
-                            </div>
-                          ))}
+                          {consultation.prescription.lines.map((line, idx) => {
+                            const med = medications.find((m) => m.id === line.medicationId)
+                            return (
+                              <div key={idx} className="text-sm p-2 rounded bg-background/50">
+                                <p className="font-medium">
+                                  {med?.commercialName || line.medicationName || "Médicament"}
+                                  {med?.dosage ? ` - ${med.dosage}` : ""}
+                                  {med?.form ? ` (${med.form})` : ""}
+                                </p>
+                                <p className="text-muted-foreground text-xs">{line.dosage}</p>
+                                <p className="text-muted-foreground text-xs">Durée: {line.durationDays} jours</p>
+                                {line.comment && <p className="text-muted-foreground text-xs">{line.comment}</p>}
+                              </div>
+                            )
+                          })}
                         </div>
                       </div>
                     ) : (
@@ -780,16 +897,20 @@ export default function PatientDetailsPage() {
                               >
                                 <div className="flex-1 space-y-2">
                                   <Select
-                                    value={med.medicationId}
-                                    onValueChange={(value) => updateMedication(index, "medicationId", value)}
+                                    value={med.medicationId === "" ? "" : String(med.medicationId)}
+                                    onValueChange={(value) => updateMedication(index, "medicationId", Number(value))}
                                   >
                                     <SelectTrigger className="bg-background/50">
                                       <SelectValue placeholder="Sélectionner un médicament" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {MOCK_MEDICATIONS.map((medication) => (
-                                        <SelectItem key={medication.id} value={medication.id}>
-                                          {medication.name} - {medication.dosage} ({medication.form})
+                                      {medicationsLoading && <SelectItem value="" disabled>Chargement...</SelectItem>}
+                                      {!medicationsLoading && medications.length === 0 && (
+                                        <SelectItem value="" disabled>Aucun médicament disponible</SelectItem>
+                                      )}
+                                      {medications.map((medication) => (
+                                        <SelectItem key={medication.id} value={String(medication.id)}>
+                                          {medication.commercialName} - {medication.dosage} ({medication.form})
                                         </SelectItem>
                                       ))}
                                     </SelectContent>

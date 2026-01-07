@@ -4,19 +4,20 @@ import { patientApi, CreatePatientDTO } from '@/api/patient.api';
 // Query Keys
 export const patientKeys = {
     all: ['patients'] as const,
-    list: (filters?: { nom?: string; prenom?: string }) => [...patientKeys.all, filters] as const,
+    byCabinet: (cabinetId: number) => [...patientKeys.all, 'cabinet', cabinetId] as const,
     detail: (id: number) => [...patientKeys.all, id] as const,
     byCin: (cin: string) => [...patientKeys.all, 'cin', cin] as const,
 };
 
 // Hooks
-export function usePatients(nom?: string, prenom?: string) {
+export function usePatients(cabinetId: number) {
     return useQuery({
-        queryKey: patientKeys.list({ nom, prenom }),
+        queryKey: patientKeys.byCabinet(cabinetId),
         queryFn: async () => {
-            const { data } = await patientApi.getAll(nom, prenom);
+            const { data } = await patientApi.getByCabinet(cabinetId);
             return data;
         },
+        enabled: cabinetId > 0,
     });
 }
 

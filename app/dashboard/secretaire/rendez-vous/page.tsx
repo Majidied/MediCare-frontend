@@ -23,8 +23,8 @@ import {
 } from "@/hooks/use-appointment"
 import { appointmentHelpers, MotifRDV } from "@/api/appointment.api"
 import { getLocalDateString } from "@/lib/date.utils"
-
-const CABINET_ID = 1 // In real app, get from auth context
+import { useAuth } from "@/lib/auth-context"
+import { useCurrentUser } from "@/hooks/use-user"
 
 interface Appointment {
   id: string
@@ -70,6 +70,16 @@ export default function RendezVousPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false)
   const { toast } = useToast()
+  const { user } = useAuth()
+
+  // Fetch user details directly using React Query
+  const { data: userDetails } = useCurrentUser(user?.email)
+  const cabinetId = userDetails?.clinicId ?? 0
+
+  // Debug logging
+  console.log("[RendezVousPage] User from auth:", user)
+  console.log("[RendezVousPage] User details from API:", userDetails)
+  console.log("[RendezVousPage] Cabinet ID:", cabinetId)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -81,7 +91,7 @@ export default function RendezVousPage() {
 
   // API hooks
   const selectedDateStr = formatDate(selectedDate)
-  const { data: appointmentsData = [], isLoading } = useAppointmentsByDate(selectedDateStr, CABINET_ID)
+  const { data: appointmentsData = [], isLoading } = useAppointmentsByDate(selectedDateStr, cabinetId)
   const { data: patients = [], isLoading: isLoadingPatients } = usePatients()
   const createMutation = useCreateAppointment()
   const updateMutation = useUpdateAppointment()
@@ -176,7 +186,7 @@ export default function RendezVousPage() {
     try {
       const requestData = appointmentHelpers.toBackendRequest(
         parseInt(formData.patientId),
-        CABINET_ID,
+        cabinetId,
         selectedSlot.date,
         selectedSlot.time,
         formData.motif as MotifRDV,
@@ -210,7 +220,7 @@ export default function RendezVousPage() {
         id: parseInt(selectedAppointment.id),
         data: {
           patientId: parseInt(formData.patientId),
-          cabinetId: CABINET_ID,
+          cabinetId: cabinetId,
           date: selectedAppointment.date,
           Heure_debut: selectedAppointment.time,
           Heure_fin: "", // Will be calculated by backend

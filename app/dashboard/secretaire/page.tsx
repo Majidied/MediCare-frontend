@@ -1,6 +1,7 @@
 "use client"
 
 import { useAuth } from "@/lib/auth-context"
+import { useCurrentUser } from "@/hooks/use-user"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Calendar, Users, Clock, FileText, Activity } from "lucide-react"
 import { useAppointmentsByDate } from "@/hooks/use-appointment"
@@ -10,8 +11,14 @@ import { useMemo } from "react"
 export default function SecretaireDashboard() {
   const { user } = useAuth()
 
-  // Get cabinetId from authenticated user, fallback to env variable
-  const cabinetId = user?.cabinetId ?? (Number(process.env.NEXT_PUBLIC_DEFAULT_CABINET_ID ?? 1) || 1)
+  // Fetch user details directly using React Query
+  const { data: userDetails } = useCurrentUser(user?.email)
+  const cabinetId = userDetails?.clinicId ?? 0
+
+  // Debug logging
+  console.log("[SecretaireDashboard] User from auth:", user)
+  console.log("[SecretaireDashboard] User details from API:", userDetails)
+  console.log("[SecretaireDashboard] Cabinet ID:", cabinetId)
 
   // Get today's date in YYYY-MM-DD format
   const today = useMemo(() => {

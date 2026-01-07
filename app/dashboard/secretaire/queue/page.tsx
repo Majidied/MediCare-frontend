@@ -14,8 +14,9 @@ import { useAppointmentsByDate } from "@/hooks/use-appointment"
 import { useQueue, useAddToQueue, useRemoveFromQueue, useCallNext, useReorderQueue } from "@/hooks/use-queue"
 import { appointmentHelpers } from "@/api/appointment.api"
 import { getTodayLocalDateString } from "@/lib/date.utils"
+import { useAuth } from "@/lib/auth-context"
+import { useCurrentUser } from "@/hooks/use-user"
 
-const CABINET_ID = 1 // In real app, get from auth context
 const AUTO_REFRESH_INTERVAL = 30000 // 30 seconds
 
 interface Appointment {
@@ -32,6 +33,16 @@ interface Appointment {
 export default function QueuePage() {
   const { toast } = useToast()
   const { addNotification } = useNotifications()
+  const { user } = useAuth()
+
+  // Fetch user details directly using React Query
+  const { data: userDetails } = useCurrentUser(user?.email)
+  const cabinetId = userDetails?.clinicId ?? 0
+
+  // Debug logging
+  console.log("[QueuePage] User from auth:", user)
+  console.log("[QueuePage] User details from API:", userDetails)
+  console.log("[QueuePage] Cabinet ID:", cabinetId)
 
   // Get today's date in YYYY-MM-DD format
   const today = useMemo(() => {
@@ -39,8 +50,8 @@ export default function QueuePage() {
   }, [])
 
   // Fetch today's appointments and queue
-  const { data: appointmentsRaw = [], isLoading: isLoadingAppointments, error: appointmentsError, refetch: refetchAppointments } = useAppointmentsByDate(today, CABINET_ID)
-  const { data: queueRaw = [], isLoading: isLoadingQueue, error: queueError, refetch: refetchQueue } = useQueue(today, CABINET_ID)
+  const { data: appointmentsRaw = [], isLoading: isLoadingAppointments, error: appointmentsError, refetch: refetchAppointments } = useAppointmentsByDate(today, cabinetId)
+  const { data: queueRaw = [], isLoading: isLoadingQueue, error: queueError, refetch: refetchQueue } = useQueue(today, cabinetId)
 
   // Auto-refresh setup
   useEffect(() => {
@@ -203,9 +214,8 @@ export default function QueuePage() {
     // Extract appointment IDs in new order
     const appointmentIds = newQueue.map(apt => Number(apt.id))
 
-    // Call reorder API
     reorderQueueMutation.mutate({
-      cabinetId: cabinetId,
+      cabinetId: cabinetId ?? 0,
       date: today,
       appointmentIds,
     }, {

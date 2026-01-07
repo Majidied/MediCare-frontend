@@ -39,6 +39,9 @@ export const userApi = {
     getByRole: (role: UserRole) =>
         apiClient.get<UserDTO[]>(`/api/users/role/${role}`),
 
+    getByLogin: (login: string) =>
+        apiClient.get<UserDTO>(`/api/users/login/${login}`),
+
     create: (data: CreateUserRequest) =>
         apiClient.post<UserDTO>('/api/users', data),
 

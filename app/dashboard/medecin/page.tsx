@@ -10,6 +10,7 @@ import { consultationApi, type ConsultationSummaryDTO, type MedecinWeeklyStatsDT
 import { patientApi } from "@/api/patient.api"
 import { prescriptionApi } from "@/api/prescription.api"
 import { useAuth } from "@/lib/auth-context"
+import { useCurrentUser } from "@/hooks/use-user"
 import { useQuery } from "@tanstack/react-query"
 import { AlertCircle, CheckCircle, Clock, Loader2, Search, Stethoscope, Users, Calendar, FileText, Bell } from "lucide-react"
 import { useRouter } from "next/navigation"
@@ -22,17 +23,20 @@ export default function MedecinDashboard() {
   const today = new Date().toISOString().split("T")[0]
   const { user } = useAuth()
 
-  // Get cabinetId from authenticated user, fallback to env variable
-  const cabinetId = user?.cabinetId ?? (Number(process.env.NEXT_PUBLIC_DEFAULT_CABINET_ID ?? 1) || 1)
+  // Fetch user details directly using React Query
+  const { data: userDetails, isLoading: userDetailsLoading } = useCurrentUser(user?.email)
+  const cabinetId = userDetails?.clinicId
+
+  // Debug logging
+  console.log("[MedecinDashboard] User from auth:", user)
+  console.log("[MedecinDashboard] User details from API:", userDetails)
+  console.log("[MedecinDashboard] Cabinet ID:", cabinetId)
+
   const medecinIdFromUser = Number(user?.id)
   const medecinIdEnv = Number(process.env.NEXT_PUBLIC_MEDECIN_ID ?? process.env.NEXT_PUBLIC_DEFAULT_MEDECIN_ID ?? 0)
   const medecinId = Number.isFinite(medecinIdFromUser) && medecinIdFromUser > 0 ? medecinIdFromUser : medecinIdEnv || 1
   const recentLimit = 5
   const audioRef = useRef<HTMLAudioElement | null>(null)
-
-  useEffect(() => {
-    console.log("[MedecinDashboard] userId (Keycloak sub):", user?.id, "medecinId utilisé:", medecinId)
-  }, [user?.id, medecinId])
 
   // WebSocket connection for real-time notifications
   useEffect(() => {

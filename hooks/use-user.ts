@@ -8,6 +8,7 @@ export const userKeys = {
     detail: (id: number) => [...userKeys.all, id] as const,
     byClinic: (clinicId: number) => [...userKeys.all, 'clinic', clinicId] as const,
     byRole: (role: UserRole) => [...userKeys.all, 'role', role] as const,
+    current: (login: string | undefined) => [...userKeys.all, 'current', login] as const,
 };
 
 // Hooks
@@ -50,6 +51,18 @@ export function useUsersByRole(role: UserRole) {
             const { data } = await userApi.getByRole(role);
             return data;
         },
+    });
+}
+
+export function useCurrentUser(login: string | undefined) {
+    return useQuery({
+        queryKey: userKeys.current(login),
+        queryFn: async () => {
+            const { data } = await userApi.getByLogin(login!);
+            return data;
+        },
+        enabled: !!login,
+        staleTime: 5 * 60 * 1000, // 5 minutes cache
     });
 }
 

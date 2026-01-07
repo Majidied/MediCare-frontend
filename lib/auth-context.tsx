@@ -109,50 +109,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const roles = keycloak.tokenParsed.realm_access?.roles || []
           const userRole: "admin" | "medecin" | "secretaire" = roles.includes("ADMIN") ? "admin" : roles.includes("MEDCIN") ? "medecin" : "secretaire"
 
-          // Fetch user details from backend using email to get cabinetId
-          const userEmail = keycloak.tokenParsed.email || keycloak.tokenParsed.preferred_username
-          const token = keycloak.token
+          const email = keycloak.tokenParsed.email || keycloak.tokenParsed.preferred_username
 
-          if (userEmail && token) {
-            fetch(`http://localhost:8080/api/users/login/${userEmail}`, {
-              headers: {
-                'Authorization': `Bearer ${token}`
-              }
-            })
-              .then(res => res.ok ? res.json() : null)
-              .then(userData => {
-                console.log("[Init] User found:", userData)
-                const cabinetId = userData?.clinicId
-                console.log("[Init] User found:", userData?.firstName, userData?.lastName)
-                console.log("[Init] Cabinet ID récupéré:", cabinetId)
-
-                setUser({
-                  id: keycloak.tokenParsed.sub || "",
-                  email: userEmail,
-                  name: keycloak.tokenParsed.name || keycloak.tokenParsed.preferred_username || "",
-                  role: userRole,
-                  cabinetId: cabinetId,
-                })
-              })
-              .catch(error => {
-                console.error("Erreur récupération cabinet ID:", error)
-                // Set user without cabinetId on error
-                setUser({
-                  id: keycloak.tokenParsed.sub || "",
-                  email: keycloak.tokenParsed.email || "",
-                  name: keycloak.tokenParsed.name || keycloak.tokenParsed.preferred_username || "",
-                  role: userRole,
-                })
-              })
-          } else {
-            // Set user without cabinetId if no email/token
-            setUser({
-              id: keycloak.tokenParsed.sub || "",
-              email: keycloak.tokenParsed.email || "",
-              name: keycloak.tokenParsed.name || keycloak.tokenParsed.preferred_username || "",
-              role: userRole,
-            })
-          }
+          // Set user
+          setUser({
+            id: keycloak.tokenParsed.sub || "",
+            email: email || "",
+            name: keycloak.tokenParsed.name || keycloak.tokenParsed.preferred_username || "",
+            role: userRole,
+          })
 
           // Store user role in localStorage for persistence
           localStorage.setItem("user_role", userRole)
@@ -284,34 +249,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log("Roles extraits:", roles)
 
       const userRole = roles.includes("ADMIN") ? "admin" : roles.includes("MEDCIN") ? "medecin" : "secretaire"
-
-      // Fetch user details from backend using email to get cabinetId
-      let cabinetId: number | undefined = undefined
-      try {
-        const userEmail = parsedToken.email || parsedToken.preferred_username
-        if (userEmail) {
-          const userResponse = await fetch(`http://localhost:8080/api/users/login/${userEmail}`, {
-            headers: {
-              'Authorization': `Bearer ${data.access_token}`
-            }
-          })
-          if (userResponse.ok) {
-            const userData = await userResponse.json()
-            cabinetId = userData.clinicId
-            console.log("[Login] User found:", userData.firstName, userData.lastName)
-            console.log("[Login] Cabinet ID récupéré:", cabinetId)
-          }
-        }
-      } catch (error) {
-        console.error("Erreur récupération cabinet ID:", error)
-      }
+      const loginEmail = parsedToken.email || parsedToken.preferred_username || email
 
       const newUser: User = {
         id: parsedToken.sub || "",
-        email: parsedToken.email || email,
+        email: loginEmail,
         name: parsedToken.name || parsedToken.preferred_username || email,
         role: userRole,
-        cabinetId: cabinetId,
       }
 
       console.log("Utilisateur cree:", newUser)

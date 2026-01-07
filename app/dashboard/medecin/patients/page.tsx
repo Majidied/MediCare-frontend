@@ -8,10 +8,16 @@ import { Search, FileText, Calendar, Phone, Loader2 } from "lucide-react"
 import { useMemo, useState } from "react"
 import Link from "next/link"
 import { usePatients } from "@/hooks/use-patient"
+import { useAuth } from "@/lib/auth-context"
+import { useCurrentUser } from "@/hooks/use-user"
 
 export default function PatientsPage() {
   const [searchQuery, setSearchQuery] = useState("")
-  const { data: patients = [], isLoading, isError, error } = usePatients()
+  const { user } = useAuth()
+  const { data: userDetails } = useCurrentUser(user?.email)
+  const cabinetId = userDetails?.clinicId ?? 0
+
+  const { data: patients = [], isLoading, isError, error } = usePatients(cabinetId)
 
   const filteredPatients = useMemo(() => {
     const query = searchQuery.toLowerCase()

@@ -12,10 +12,16 @@ import { useState } from "react"
 import { usePatients, useCreatePatient, useUpdatePatient, useDeletePatient } from "@/hooks/use-patient"
 import { Patient, CreatePatientDTO } from "@/api/patient.api"
 import { useToast } from "@/hooks/use-toast"
+import { useAuth } from "@/lib/auth-context"
+import { useCurrentUser } from "@/hooks/use-user"
 
 export default function SecretairePatientsPage() {
+  const { user } = useAuth()
+  const { data: userDetails } = useCurrentUser(user?.email)
+  const cabinetId = userDetails?.clinicId ?? 0
+
   // React Query hooks
-  const { data: patients = [], isLoading: loading } = usePatients()
+  const { data: patients = [], isLoading: loading } = usePatients(cabinetId)
   const createMutation = useCreatePatient()
   const updateMutation = useUpdatePatient()
   const deleteMutation = useDeletePatient()

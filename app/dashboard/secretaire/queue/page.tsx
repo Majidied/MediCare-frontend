@@ -9,7 +9,6 @@ import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Clock, AlertCircle, UserMinus, UserPlus, Send, GripVertical, RefreshCw, X, TrendingUp } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { useNotifications } from "@/lib/notifications-context"
 import { useAppointmentsByDate, useInConsultation, useUpdateAppointmentStatus } from "@/hooks/use-appointment"
 import { useQueue, useAddToQueue, useRemoveFromQueue, useCallNext, useReorderQueue } from "@/hooks/use-queue"
 import { appointmentHelpers } from "@/api/appointment.api"
@@ -32,7 +31,6 @@ interface Appointment {
 
 export default function QueuePage() {
   const { toast } = useToast()
-  const { addNotification } = useNotifications()
   const { user } = useAuth()
 
   // Fetch user details directly using React Query
@@ -257,10 +255,11 @@ export default function QueuePage() {
     const draggedIndex = queue.findIndex((item) => item.id === draggedItem.id)
     if (draggedIndex === -1) return
 
-    // Create new order
+    // Create new order - use queue items to maintain correct types
     const newQueue = [...queue]
+    const draggedQueueItem = newQueue[draggedIndex]
     newQueue.splice(draggedIndex, 1)
-    newQueue.splice(targetIndex, 0, draggedItem)
+    newQueue.splice(targetIndex, 0, draggedQueueItem)
 
     // Extract appointment IDs in new order
     const appointmentIds = newQueue.map(apt => Number(apt.id))
@@ -295,21 +294,7 @@ export default function QueuePage() {
 
     callNextMutation.mutate(Number(patient.id), {
       onSuccess: () => {
-        // Send notification to doctor
-        addNotification({
-          id: `notif-${Date.now()}`,
-          patientId: patient.patientId,
-          patientName: patient.patientName,
-          patientAge: 35,
-          appointmentTime: patient.time,
-          appointmentDate: "Aujourd'hui",
-          reason: patient.reason,
-          urgency: patient.urgency,
-          status: "pending",
-          sentBy: "Secrétaire",
-          sentAt: "À l'instant",
-        })
-
+        // Notification will be sent automatically by backend via WebSocket
         toast({
           title: "Patient envoyé au médecin",
           description: `${patient.patientName} est maintenant en consultation`,

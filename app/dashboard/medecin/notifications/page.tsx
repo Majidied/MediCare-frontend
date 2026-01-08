@@ -1,199 +1,158 @@
 "use client"
 
 import { DashboardLayout } from "@/components/dashboard-layout"
-import { useNotifications } from "@/lib/notifications-context"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Bell, User, Calendar, Clock, FileText, CheckCircle, ArrowRight } from "lucide-react"
+import { useNotifications } from "@/hooks/use-notifications"
+import { Bell, Clock, CheckCircle, AlertCircle, Loader2, Eye } from "lucide-react"
+import { formatDistanceToNow } from "date-fns"
+import { fr } from "date-fns/locale"
 import { useRouter } from "next/navigation"
 
-export default function MedecinNotifications() {
-  const { notifications, markAsRead } = useNotifications()
+export default function NotificationsPage() {
+  const { notifications, markAsRead, isLoading } = useNotifications()
   const router = useRouter()
 
-  const handleViewPatient = (notificationId: string, patientId: string) => {
-    markAsRead(notificationId)
-    const targetUrl = `/dashboard/medecin/patients/${patientId}`
-    router.push(targetUrl)
+  const handleMarkAsRead = async (id: string) => {
+    await markAsRead(id)
   }
 
-  const getUrgencyBadge = (urgency: string) => {
-    switch (urgency) {
-      case "emergency":
-        return (
-          <Badge className="bg-destructive/10 text-destructive border-destructive/20">
-            <span className="w-2 h-2 bg-destructive rounded-full animate-pulse mr-2" />
-            Urgence
-          </Badge>
-        )
-      case "urgent":
-        return (
-          <Badge className="bg-warning/10 text-warning border-warning/20">
-            <Clock className="w-3 h-3 mr-1" />
-            Urgent
-          </Badge>
-        )
-      default:
-        return (
-          <Badge className="bg-primary/10 text-primary border-primary/20">
-            <Calendar className="w-3 h-3 mr-1" />
-            Normal
-          </Badge>
-        )
+  const handleViewPatient = async (notification: any) => {
+    // Mark as read when viewing
+    if (notification.status === 'pending') {
+      await markAsRead(notification.id)
+    }
+    
+    // Navigate to patient details using patientId
+    if (notification.patientId) {
+      router.push(`/dashboard/medecin/patients/${notification.patientId}`)
     }
   }
 
-  const pendingNotifications = notifications.filter((n) => n.status === "pending")
-  const readNotifications = notifications.filter((n) => n.status === "read")
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'PATIENT_CONSULTATION':
+        return <Bell className="w-5 h-5 text-blue-500" />
+      case 'SUBSCRIPTION_EXPIRATION_ALERT':
+        return <AlertCircle className="w-5 h-5 text-orange-500" />
+      default:
+        return <Bell className="w-5 h-5 text-gray-500" />
+    }
+  }
+
+  const getTimeAgo = (dateString: string) => {
+    try {
+      return formatDistanceToNow(new Date(dateString), { addSuffix: true, locale: fr })
+    } catch {
+      return dateString
+    }
+  }
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-primary/10 border border-primary/20 glow-accent">
-                <Bell className="w-6 h-6 text-primary" />
-              </div>
-              Notifications Patients
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              Patients envoyés par la secrétaire - {pendingNotifications.length} en attente
-            </p>
+            <h1 className="text-3xl font-bold">Notifications</h1>
+            <p className="text-muted-foreground">Gérez vos notifications et alertes</p>
           </div>
+          {notifications.length > 0 && (
+            <Badge variant="secondary" className="gap-1">
+              <Bell className="w-3 h-3" />
+              {notifications.filter(n => n.status === 'pending').length} non lues
+            </Badge>
+          )}
         </div>
 
-        {pendingNotifications.length === 0 && (
-          <Card className="glass-card p-12 text-center">
-            <div className="flex flex-col items-center gap-4">
-              <div className="p-4 rounded-full bg-primary/10 border border-primary/20">
-                <CheckCircle className="w-8 h-8 text-primary" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold">Aucune notification en attente</h3>
-                <p className="text-muted-foreground mt-1">Tous les patients ont été traités</p>
-              </div>
+        {isLoading ? (
+          <Card className="p-8">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span>Chargement des notifications...</span>
             </div>
           </Card>
-        )}
-
-        <div className="space-y-4">
-          {pendingNotifications.map((notification, index) => (
-            <Card
-              key={notification.id}
-              className="glass-card p-6 hover:scale-[1.01] transition-all duration-300 glow-primary animate-fade-in-up"
-              style={{ animationDelay: `${index * 100}ms` }}
-            >
-              <div className="flex flex-col lg:flex-row gap-6">
-                <div className="flex-1 space-y-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 rounded-xl bg-primary/10 border border-primary/20">
-                        <User className="w-5 h-5 text-primary" />
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-semibold">{notification.patientName}</h3>
-                        <p className="text-sm text-muted-foreground">{notification.patientAge} ans</p>
-                      </div>
-                    </div>
-                    {getUrgencyBadge(notification.urgency)}
-                  </div>
-
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="flex items-center gap-2 p-3 rounded-lg bg-background/50 border border-border/50">
-                      <Calendar className="w-4 h-4 text-primary" />
-                      <div>
-                        <p className="text-xs text-muted-foreground">Date & Heure</p>
-                        <p className="text-sm font-medium">
-                          {notification.appointmentDate} à {notification.appointmentTime}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 p-3 rounded-lg bg-background/50 border border-border/50">
-                      <FileText className="w-4 h-4 text-primary" />
-                      <div>
-                        <p className="text-xs text-muted-foreground">Motif</p>
-                        <p className="text-sm font-medium">{notification.reason}</p>
-                      </div>
-                    </div>
-
-                    {notification.lastVisit && (
-                      <div className="flex items-center gap-2 p-3 rounded-lg bg-background/50 border border-border/50">
-                        <Clock className="w-4 h-4 text-primary" />
-                        <div>
-                          <p className="text-xs text-muted-foreground">Dernière visite</p>
-                          <p className="text-sm font-medium">{notification.lastVisit}</p>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-2 p-3 rounded-lg bg-background/50 border border-border/50">
-                      <User className="w-4 h-4 text-primary" />
-                      <div>
-                        <p className="text-xs text-muted-foreground">Envoyé par</p>
-                        <p className="text-sm font-medium">{notification.sentBy}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {notification.patientHistory && (
-                    <div className="p-3 rounded-lg bg-background/50 border border-border/50">
-                      <p className="text-xs text-muted-foreground mb-1">Historique médical</p>
-                      <p className="text-sm">{notification.patientHistory}</p>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between pt-2">
-                    <p className="text-xs text-muted-foreground">{notification.sentAt}</p>
-                  </div>
-                </div>
-
-                <div className="flex lg:flex-col gap-2 lg:min-w-[140px] items-center justify-center">
-                  <Button
-                    className="flex-1 bg-primary hover:bg-primary/90 glow-primary"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      handleViewPatient(notification.id, notification.patientId)
-                    }}
-                  >
-                    Voir Dossier
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          ))}
-        </div>
-
-        {readNotifications.length > 0 && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold mt-8">Notifications Lues</h2>
-            {readNotifications.map((notification) => (
+        ) : notifications.length === 0 ? (
+          <Card className="p-8">
+            <div className="text-center text-muted-foreground">
+              <Bell className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>Aucune notification pour le moment</p>
+            </div>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {notifications.map((notification) => {
+              // Debug log to check notification data
+              console.log('Notification:', {
+                id: notification.id,
+                type: notification.type,
+                appointmentId: notification.appointmentId,
+                hasAppointmentId: !!notification.appointmentId
+              })
+              
+              return (
               <Card
                 key={notification.id}
-                className="glass-card p-4 opacity-60 cursor-pointer hover:opacity-80 transition-opacity"
-                onClick={() => router.push(`/dashboard/medecin/patients/${notification.patientId}`)}
+                className={`p-4 transition-all hover:border-primary/50 ${
+                  notification.status === "pending" ? "bg-primary/5 border-primary/20" : "bg-muted/30"
+                }`}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <User className="w-5 h-5 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium">{notification.patientName}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {notification.appointmentDate} à {notification.appointmentTime}
-                      </p>
+                <div className="flex items-start gap-4">
+                  <div className="mt-1">
+                    {getNotificationIcon(notification.type)}
+                  </div>
+
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h3 className="font-semibold">{notification.title}</h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          {notification.content}
+                        </p>
+                      </div>
+                      {notification.status === "pending" && (
+                        <Badge variant="default" className="shrink-0">
+                          Nouveau
+                        </Badge>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        <span>{getTimeAgo(notification.createdAt)}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {notification.type === "PATIENT_CONSULTATION" && notification.appointmentId && (
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={() => handleViewPatient(notification)}
+                            className="h-7 text-xs gap-1"
+                          >
+                            <Eye className="w-3 h-3" />
+                            Voir
+                          </Button>
+                        )}
+                        
+                        {notification.status === "pending" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleMarkAsRead(notification.id)}
+                            className="h-7 text-xs gap-1"
+                          >
+                            <CheckCircle className="w-3 h-3" />
+                            Marquer comme lu
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <Badge className="bg-muted text-muted-foreground border-muted">
-                    <CheckCircle className="w-3 h-3 mr-1" />
-                    Lu
-                  </Badge>
                 </div>
               </Card>
-            ))}
+            )})}
           </div>
         )}
       </div>

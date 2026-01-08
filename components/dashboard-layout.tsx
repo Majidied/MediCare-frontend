@@ -4,7 +4,7 @@ import type React from "react"
 import { DollarSign, Building2 } from "lucide-react"
 
 import { useAuth } from "@/lib/auth-context"
-import { useNotifications } from "@/lib/notifications-context"
+import { useNotifications } from "@/hooks/use-notifications"
 import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"

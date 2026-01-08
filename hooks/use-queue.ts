@@ -89,6 +89,10 @@ export function useCallNext() {
             queryClient.invalidateQueries({
                 queryKey: ['appointments', 'by-date', data.date, data.cabinetId],
             });
+            // Invalidate in-consultation query
+            queryClient.invalidateQueries({
+                queryKey: ['appointments', 'in-consultation', data.date, data.cabinetId],
+            });
         },
     });
 }

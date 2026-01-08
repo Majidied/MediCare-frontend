@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Clock, AlertCircle, UserMinus, UserPlus, Send, GripVertical, RefreshCw, X, TrendingUp } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useNotifications } from "@/lib/notifications-context"
-import { useAppointmentsByDate } from "@/hooks/use-appointment"
+import { useAppointmentsByDate, useInConsultation, useUpdateAppointmentStatus } from "@/hooks/use-appointment"
 import { useQueue, useAddToQueue, useRemoveFromQueue, useCallNext, useReorderQueue } from "@/hooks/use-queue"
 import { appointmentHelpers } from "@/api/appointment.api"
 import { getTodayLocalDateString } from "@/lib/date.utils"
@@ -52,21 +52,24 @@ export default function QueuePage() {
   // Fetch today's appointments and queue
   const { data: appointmentsRaw = [], isLoading: isLoadingAppointments, error: appointmentsError, refetch: refetchAppointments } = useAppointmentsByDate(today, cabinetId)
   const { data: queueRaw = [], isLoading: isLoadingQueue, error: queueError, refetch: refetchQueue } = useQueue(today, cabinetId)
+  const { data: inConsultationRaw, refetch: refetchInConsultation } = useInConsultation(today, cabinetId)
 
   // Auto-refresh setup
   useEffect(() => {
     const intervalId = setInterval(() => {
       refetchAppointments()
       refetchQueue()
+      refetchInConsultation()
     }, AUTO_REFRESH_INTERVAL)
 
     return () => clearInterval(intervalId)
-  }, [refetchAppointments, refetchQueue])
+  }, [refetchAppointments, refetchQueue, refetchInConsultation])
 
   // Manual refresh handler
   const handleRefresh = () => {
     refetchAppointments()
     refetchQueue()
+    refetchInConsultation()
     toast({
       title: "Rafraîchissement",
       description: "Les données ont été actualisées",
@@ -78,6 +81,7 @@ export default function QueuePage() {
   const removeFromQueueMutation = useRemoveFromQueue()
   const callNextMutation = useCallNext()
   const reorderQueueMutation = useReorderQueue()
+  const updateStatusMutation = useUpdateAppointmentStatus()
 
   // Convert backend data to frontend format
   const appointments = useMemo(() => {
@@ -113,12 +117,43 @@ export default function QueuePage() {
     }).sort((a: any, b: any) => (a.queuePosition || 0) - (b.queuePosition || 0))
   }, [queueRaw])
 
-  const [inConsultation, setInConsultation] = useState<Appointment | null>(null)
+  // Convert in consultation data to frontend format
+  const inConsultation = useMemo(() => {
+    if (!inConsultationRaw) return null
+    const frontendApt = appointmentHelpers.toFrontend(inConsultationRaw)
+    return {
+      id: frontendApt.id,
+      patientId: frontendApt.patientId,
+      patientName: frontendApt.patientName,
+      time: frontendApt.time,
+      reason: frontendApt.motif,
+      urgency: "normal" as const,
+      status: "inConsultation" as const,
+    }
+  }, [inConsultationRaw])
+
   const [draggedItem, setDraggedItem] = useState<Appointment | null>(null)
 
-  // Separate appointments by status (missing appointments to be tracked separately)
+  // Separate appointments by status
   const scheduledAppointments = appointments
-  const missingAppointments: Appointment[] = [] // Can be tracked via MISSING status if needed
+  
+  // Get missing appointments from backend data
+  const missingAppointments = useMemo(() => {
+    return appointmentsRaw
+      .filter(apt => apt.statutRDV === 'MISSING')
+      .map((apt: any) => {
+        const frontendApt = appointmentHelpers.toFrontend(apt)
+        return {
+          id: frontendApt.id,
+          patientId: frontendApt.patientId,
+          patientName: frontendApt.patientName,
+          time: frontendApt.time,
+          reason: frontendApt.motif,
+          urgency: "normal" as const,
+          status: "missing" as const,
+        }
+      })
+  }, [appointmentsRaw])
 
   const handleRemoveFromQueue = (appointmentId: string) => {
     removeFromQueueMutation.mutate(Number(appointmentId), {
@@ -139,11 +174,27 @@ export default function QueuePage() {
   }
 
   const handleMarkAbsent = (appointmentId: string) => {
-    // TODO: Implement with API to update status to MISSING
-    toast({
-      title: "Patient marqué absent",
-      description: "Le rendez-vous a été marqué comme absent",
-    })
+    console.log('[QueuePage] Marking appointment as absent:', appointmentId)
+    updateStatusMutation.mutate(
+      { id: Number(appointmentId), status: 'MISSING' },
+      {
+        onSuccess: (data) => {
+          console.log('[QueuePage] Successfully marked as absent:', data)
+          toast({
+            title: "Patient marqué absent",
+            description: "Le rendez-vous a été marqué comme absent",
+          })
+        },
+        onError: (error: any) => {
+          console.error('[QueuePage] Error marking absent:', error)
+          toast({
+            title: "Erreur",
+            description: error.message || "Impossible de marquer le patient comme absent",
+            variant: "destructive",
+          })
+        }
+      }
+    )
   }
 
   const handleAddToQueue = (appointment: Appointment) => {
@@ -244,8 +295,6 @@ export default function QueuePage() {
 
     callNextMutation.mutate(Number(patient.id), {
       onSuccess: () => {
-        setInConsultation(patient)
-
         // Send notification to doctor
         addNotification({
           id: `notif-${Date.now()}`,

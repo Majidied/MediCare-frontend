@@ -12,6 +12,7 @@ export interface NotificationMessage {
     readDate?: string;
     patientId?: number;
     appointmentId?: number;
+    consultationId?: number;
 }
 
 /**

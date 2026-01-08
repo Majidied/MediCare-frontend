@@ -157,6 +157,7 @@ export function useNotifications() {
                 readAt: notification.readDate,
                 patientId: notification.patientId,
                 appointmentId: notification.appointmentId,
+                consultationId: notification.consultationId,
             }
 
             // Add to query cache only if it doesn't already exist (prevent duplicates)

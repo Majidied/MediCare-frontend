@@ -3,7 +3,7 @@
 import apiClient from './client';
 
 // Notification types matching backend
-export type NotificationType = 'PATIENT_FOLLOWING' | 'SUBSCRIPTION_EXPIRATION_ALERT' | 'PATIENT_CONSULTATION';
+export type NotificationType = 'PATIENT_FOLLOWING' | 'SUBSCRIPTION_EXPIRATION_ALERT' | 'PATIENT_CONSULTATION' | 'BILLING_READY';
 export type NotificationStatus = 'PENDING' | 'READ';
 
 // Backend notification response
@@ -18,6 +18,7 @@ export interface NotificationResponse {
     readDate?: string; // ISO string
     patientId?: number;
     appointmentId?: number;
+    consultationId?: number;
 }
 
 // Frontend notification interface
@@ -32,6 +33,7 @@ export interface Notification {
     readAt?: string;
     patientId?: number;
     appointmentId?: number;
+    consultationId?: number;
 }
 
 // Helper to convert backend to frontend format
@@ -48,6 +50,7 @@ export const notificationHelpers = {
             readAt: response.readDate,
             patientId: response.patientId,
             appointmentId: response.appointmentId,
+            consultationId: response.consultationId,
         };
     },
 };

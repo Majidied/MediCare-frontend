@@ -23,6 +23,7 @@ export const rdvApi = {
     try {
       // Hitting the appointments service via the API gateway prefix
       const { data } = await apiClient.get<RDVResponse>(`/api/appointments/patients/${patientId}/today`)
+      console.log('      RDV today data:', data)
       return data
     } catch (error: any) {
       // Gracefully allow 404 meaning no RDV for today

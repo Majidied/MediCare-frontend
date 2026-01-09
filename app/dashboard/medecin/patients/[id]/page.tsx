@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useNotifications } from "@/hooks/use-notifications"
 import { useAuth } from "@/lib/auth-context"
+import { useCurrentUser } from "@/hooks/use-user"
 import { consultationApi, type ConsultationDTO, type ConsultationSummaryDTO } from "@/api/consultation.api"
 import { rdvApi, type StatutRDV } from "@/api/rdv.api"
 import { medicationApi, type MedicationDTO } from "@/api/medication.api"
@@ -41,6 +42,10 @@ import { type Patient } from "@/api/patient.api"
 
 export default function PatientDetailsPage() {
   type ConsultationViewModel = ConsultationSummaryDTO & {
+    rendezVousId?: number
+    patientId?: number
+    medecinId?: number
+    cabinetId?: number
     examenClinique?: string
     examenSupplementaire?: string
     traitement?: string
@@ -53,9 +58,8 @@ export default function PatientDetailsPage() {
   const patientId = typeof params?.id === "string" ? Number(params.id) : Number.NaN
   const isValidPatientId = Number.isFinite(patientId) && patientId > 0
   const { user } = useAuth()
-  const medecinIdFromUser = Number(user?.id)
-  const medecinIdEnv = Number(process.env.NEXT_PUBLIC_MEDECIN_ID ?? process.env.NEXT_PUBLIC_DEFAULT_MEDECIN_ID ?? 0)
-  const medecinId = Number.isFinite(medecinIdFromUser) && medecinIdFromUser > 0 ? medecinIdFromUser : medecinIdEnv || 0
+  const { data: userDetails } = useCurrentUser(user?.email)
+  const medecinId = userDetails?.id ?? 0
   const { toast } = useToast()
   const { addBillingNotification } = useNotifications()
   const queryClient = useQueryClient()
@@ -126,7 +130,7 @@ export default function PatientDetailsPage() {
   const [isEditMode, setIsEditMode] = useState(false)
   const [newConsultation, setNewConsultation] = useState({
     dateConsultation: new Date().toISOString(),
-    type: "",
+    type: "CONSULTATION",
     diagnostic: "",
     traitement: "",
     observations: "",
@@ -311,7 +315,12 @@ export default function PatientDetailsPage() {
         }
 
         const created = await createConsultationMutation.mutateAsync(payload)
-        updateConsultationsState((prev) => [...prev, { ...created, status: created.archived ? "terminee" : undefined }])
+        const viewModel: ConsultationViewModel = {
+          ...created,
+          diagnostic: created.diagnostic ?? "",
+          status: created.archived ? "terminee" : undefined,
+        }
+        updateConsultationsState((prev) => [...prev, viewModel])
 
         toast({
           title: "Consultation ajoutée",
@@ -332,7 +341,7 @@ export default function PatientDetailsPage() {
     setEditConsultationId(null)
     setNewConsultation({
       dateConsultation: new Date().toISOString(),
-      type: "",
+      type: "CONSULTATION",
       diagnostic: "",
       traitement: "",
       observations: "",
@@ -515,25 +524,34 @@ export default function PatientDetailsPage() {
 
       const payload: Partial<ConsultationDTO> = {
         id: consultation.id,
-        patientId: patientRecord.id,
-        ...(resolvedMedecinId ? { medecinId: resolvedMedecinId } : {}),
-        ...(resolvedCabinetId ? { cabinetId: resolvedCabinetId } : {}),
-        ...(resolvedRendezVousId ? { rendezVousId: resolvedRendezVousId } : {}),
+        patientId: consultation.patientId ?? (patient as Patient).id,
+        medecinId: consultation.medecinId ?? medecinId,
+        cabinetId: consultation.cabinetId ?? (patient as Patient).cabinetId,
+        rendezVousId: consultation.rendezVousId ?? todayRdv?.id ?? 0,
         type: consultation.type,
         dateConsultation: consultation.dateConsultation,
         diagnostic: consultation.diagnostic,
         traitement: consultation.traitement,
         observations: consultation.observations,
+        examenClinique: consultation.examenClinique,
+        examenSupplementaire: consultation.examenSupplementaire,
         archived: true,
         archivedAt: optimisticArchivedAt,
       }
 
-      console.log("[consultation-update] sending", payload)
+      console.log("[consultation-update] Terminating consultation", consultation.id)
+      console.log("[consultation-update] Payload:", JSON.stringify(payload, null, 2))
       const updated = await updateConsultationMutation.mutateAsync({ consultationId: consultation.id, payload })
       console.log("[consultation-update] received", updated)
       updateConsultationsState((prev) =>
         prev.map((c) => (c.id === consultation.id ? { ...c, ...updated, status: "terminee" } : c)),
       )
+
+      // Success: Backend will handle appointment status update and secretary notification
+      toast({
+        title: "Consultation terminée",
+        description: "Le rendez-vous a été marqué comme terminé et la secrétaire a été notifiée",
+      })
     } catch (err: any) {
       updateConsultationsState(previous)
       toast({
@@ -541,32 +559,7 @@ export default function PatientDetailsPage() {
         description: err?.response?.data?.message || "Impossible de terminer la consultation",
         variant: "destructive",
       })
-      return
     }
-
-    addBillingNotification({
-      id: `billing-${Date.now()}`,
-      type: "billing",
-      consultationId: consultation.id,
-      patientId: patient.id,
-      patientName: [patient.nom, patient.prenom].filter(Boolean).join(" ").trim(),
-      patientAge: patient.dateNaissance
-        ? new Date().getFullYear() - new Date(patient.dateNaissance).getFullYear()
-        : undefined,
-      consultationDate: consultation.dateConsultation,
-      motif: consultation.type,
-      diagnostic: consultation.diagnostic,
-      traitement: consultation.traitement,
-      notes: consultation.observations,
-      status: "pending",
-      sentBy: "Dr. Sarah Martin",
-      sentAt: "À l'instant",
-    })
-
-    toast({
-      title: "Consultation terminée",
-      description: "La secrétaire a été notifiée pour la facturation",
-    })
   }
 
   return (
@@ -588,14 +581,8 @@ export default function PatientDetailsPage() {
               <p className="text-muted-foreground">Dossier médical complet</p>
             </div>
           </div>
-          <Badge
-            className={
-              patient.status === "Actif"
-                ? "bg-success/10 text-success border-success/20"
-                : "bg-muted/10 text-muted-foreground border-muted/20"
-            }
-          >
-            {patient.status}
+          <Badge className="bg-success/10 text-success border-success/20">
+            Actif
           </Badge>
         </div>
 
@@ -663,31 +650,110 @@ export default function PatientDetailsPage() {
               <ClipboardList className="w-5 h-5 text-primary" />
               Consultations ({consultations.length})
             </h2>
-            <div className="flex items-center gap-3">
-              {hasConsultationForTodayRdv && (
-                <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/30">
-                  Consultation enregistrée
-                </Badge>
-              )}
-              <Dialog
-                open={consultationDialogOpen}
-                onOpenChange={(open) => {
-                  setConsultationDialogOpen(open)
-                  if (!open) {
-                    setIsEditMode(false)
-                    setEditConsultationId(null)
-                    setNewConsultation({
-                      dateConsultation: new Date().toISOString(),
-                      type: "",
-                      diagnostic: "",
-                      traitement: "",
-                      observations: "",
-                    })
-                  }
-                }}
-              >
-                {!hasConsultationForTodayRdv && (
-                  <DialogTrigger asChild>
+            <Dialog
+              open={consultationDialogOpen}
+              onOpenChange={(open) => {
+                setConsultationDialogOpen(open)
+                if (!open) {
+                  setIsEditMode(false)
+                  setEditConsultationId(null)
+                  setNewConsultation({
+                    dateConsultation: new Date().toISOString(),
+                    type: "CONSULTATION",
+                    diagnostic: "",
+                    traitement: "",
+                    observations: "",
+                  })
+                }
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button
+                  className="bg-primary hover:bg-primary/90 glow-primary"
+                  disabled={!hasEligibleRdv || todayRdvLoading}
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Nouvelle consultation
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="glass-card max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>{isEditMode ? "Modifier la Consultation" : "Nouvelle Consultation"}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  {!hasEligibleRdv && !todayRdvLoading && (
+                    <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/5 text-sm text-destructive flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4" />
+                      Aucun rendez-vous valide trouvé pour aujourd'hui.
+                    </div>
+                  )}
+                  <div>
+                    <Label htmlFor="date">Date *</Label>
+                    <Input
+                      id="date"
+                      type="date"
+                      value={newConsultation.dateConsultation.split("T")[0]}
+                      onChange={(e) =>
+                        setNewConsultation({
+                          ...newConsultation,
+                          dateConsultation: new Date(e.target.value).toISOString(),
+                        })
+                      }
+                      className="bg-background/50"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="type">Type *</Label>
+                    <Select
+                      value={newConsultation.type}
+                      onValueChange={(value) => setNewConsultation({ ...newConsultation, type: value })}
+                    >
+                      <SelectTrigger id="type" className="bg-background/50">
+                        <SelectValue placeholder="Sélectionner un type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="CONSULTATION">CONSULTATION</SelectItem>
+                        <SelectItem value="CONTROLE">CONTROLE</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="diagnostic">Diagnostic *</Label>
+                    <Textarea
+                      id="diagnostic"
+                      value={newConsultation.diagnostic}
+                      onChange={(e) => setNewConsultation({ ...newConsultation, diagnostic: e.target.value })}
+                      placeholder="Diagnostic médical"
+                      className="bg-background/50"
+                      rows={3}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="traitement">Traitement</Label>
+                    <Textarea
+                      id="traitement"
+                      value={newConsultation.traitement}
+                      onChange={(e) => setNewConsultation({ ...newConsultation, traitement: e.target.value })}
+                      placeholder="Traitement prescrit"
+                      className="bg-background/50"
+                      rows={3}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="notes">Notes</Label>
+                    <Textarea
+                      id="notes"
+                      value={newConsultation.observations}
+                      onChange={(e) => setNewConsultation({ ...newConsultation, observations: e.target.value })}
+                      placeholder="Notes supplémentaires"
+                      className="bg-background/50"
+                      rows={2}
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setConsultationDialogOpen(false)}>
+                      Annuler
+                    </Button>
                     <Button
                       className="bg-primary hover:bg-primary/90 glow-primary"
                       disabled={!hasEligibleRdv || todayRdvLoading}

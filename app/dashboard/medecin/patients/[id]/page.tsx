@@ -755,104 +755,16 @@ export default function PatientDetailsPage() {
                       Annuler
                     </Button>
                     <Button
-                      className="bg-primary hover:bg-primary/90 glow-primary"
-                      disabled={!hasEligibleRdv || todayRdvLoading}
+                      onClick={handleAddConsultation}
+                      className="bg-primary hover:bg-primary/90"
+                      disabled={createConsultationMutation.isPending}
                     >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Nouvelle consultation
+                      {isEditMode ? "Mettre à jour" : "Enregistrer"}
                     </Button>
-                  </DialogTrigger>
-                )}
-                <DialogContent className="glass-card max-w-2xl">
-                  <DialogHeader>
-                    <DialogTitle>{isEditMode ? "Modifier la Consultation" : "Nouvelle Consultation"}</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    {!hasEligibleRdv && !todayRdvLoading && (
-                      <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/5 text-sm text-destructive flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4" />
-                        Aucun rendez-vous valide trouvé pour aujourd'hui.
-                      </div>
-                    )}
-                    <div>
-                      <Label htmlFor="date">Date *</Label>
-                      <Input
-                        id="date"
-                        type="date"
-                        value={newConsultation.dateConsultation.split("T")[0]}
-                        onChange={(e) =>
-                          setNewConsultation({
-                            ...newConsultation,
-                            dateConsultation: new Date(e.target.value).toISOString(),
-                          })
-                        }
-                        className="bg-background/50"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="type">Type *</Label>
-                      <Select
-                        value={newConsultation.type}
-                        onValueChange={(value) => setNewConsultation({ ...newConsultation, type: value })}
-                      >
-                        <SelectTrigger id="type" className="bg-background/50">
-                          <SelectValue placeholder="Sélectionner un type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="CONSULTATION">CONSULTATION</SelectItem>
-                          <SelectItem value="CONTROLE">CONTROLE</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label htmlFor="diagnostic">Diagnostic *</Label>
-                      <Textarea
-                        id="diagnostic"
-                        value={newConsultation.diagnostic}
-                        onChange={(e) => setNewConsultation({ ...newConsultation, diagnostic: e.target.value })}
-                        placeholder="Diagnostic médical"
-                        className="bg-background/50"
-                        rows={3}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="traitement">Traitement</Label>
-                      <Textarea
-                        id="traitement"
-                        value={newConsultation.traitement}
-                        onChange={(e) => setNewConsultation({ ...newConsultation, traitement: e.target.value })}
-                        placeholder="Traitement prescrit"
-                        className="bg-background/50"
-                        rows={3}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="notes">Notes</Label>
-                      <Textarea
-                        id="notes"
-                        value={newConsultation.observations}
-                        onChange={(e) => setNewConsultation({ ...newConsultation, observations: e.target.value })}
-                        placeholder="Notes supplémentaires"
-                        className="bg-background/50"
-                        rows={2}
-                      />
-                    </div>
-                    <div className="flex justify-end gap-2">
-                      <Button variant="outline" onClick={() => setConsultationDialogOpen(false)}>
-                        Annuler
-                      </Button>
-                      <Button
-                        onClick={handleAddConsultation}
-                        className="bg-primary hover:bg-primary/90"
-                        disabled={createConsultationMutation.isPending}
-                      >
-                        {isEditMode ? "Mettre à jour" : "Enregistrer"}
-                      </Button>
-                    </div>
                   </div>
-                </DialogContent>
-              </Dialog>
-            </div>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
 
           {consultations.length > 0 ? (

@@ -133,7 +133,7 @@ export default function PatientsPage() {
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-12 rounded-full bg-primary/10 border-2 border-primary/20 flex items-center justify-center group-hover:scale-110 transition-transform">
                           <span className="text-lg font-bold text-primary">
-                            {patient.nom[0]}{patient.prenom[0]}
+                            {patient.nom?.[0] ?? '?'}{patient.prenom?.[0] ?? '?'}
                           </span>
                         </div>
                         <div>

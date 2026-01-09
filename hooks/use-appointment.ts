@@ -100,6 +100,25 @@ export function useDeleteAppointment() {
 }
 
 /**
+ * Hook to get current patient in consultation for a specific cabinet and date
+ */
+export function useInConsultation(date: string, cabinetId: number) {
+    return useQuery<AppointmentResponse | null, Error>({
+        queryKey: ['appointments', 'in-consultation', date, cabinetId],
+        queryFn: async () => {
+            const response = await appointmentApi.getByDate(date, cabinetId);
+            // Find the appointment with EN_CONSULTATION status
+            const inConsultation = response.data.find(apt => apt.statutRDV === 'EN_CONSULTATION');
+            return inConsultation || null;
+        },
+        staleTime: 5000, // Consider data fresh for 5 seconds
+        refetchInterval: 10000, // Auto-refetch every 10 seconds
+        refetchOnWindowFocus: true, // Refetch when window regains focus
+        enabled: !!date && !!cabinetId,
+    });
+}
+
+/**
  * Hook to update appointment status
  */
 export function useUpdateAppointmentStatus() {
@@ -117,6 +136,9 @@ export function useUpdateAppointmentStatus() {
             });
             queryClient.invalidateQueries({
                 queryKey: ['appointments', 'by-date'],
+            });
+            queryClient.invalidateQueries({
+                queryKey: ['appointments', 'in-consultation'],
             });
         },
     });

@@ -25,6 +25,7 @@ import { appointmentHelpers, MotifRDV } from "@/api/appointment.api"
 import { getLocalDateString } from "@/lib/date.utils"
 import { useAuth } from "@/lib/auth-context"
 import { useCurrentUser } from "@/hooks/use-user"
+import { validateRequired } from "@/lib/validation.utils"
 
 interface Appointment {
   id: string
@@ -33,7 +34,7 @@ interface Appointment {
   date: string
   time: string
   motif: MotifRDV
-  status: "confirmé" | "en_attente" | "annulé"
+  status: "confirmé" | "en_attente" | "annulé" | "en_consultation" | "terminé" | "absent"
   notes?: string
 }
 
@@ -167,8 +168,37 @@ export default function RendezVousPage() {
     if (!formData.patientId) {
       newErrors.patientId = "Veuillez sélectionner un patient"
     }
-    if (!formData.motif.trim()) {
-      newErrors.motif = "Le motif est obligatoire"
+    
+    // Validate motif
+    const motifValidation = validateRequired(formData.motif, "Le motif", 2, 200)
+    if (!motifValidation.valid) newErrors.motif = motifValidation.error!
+
+    // Notes are optional, but if provided, validate length
+    if (formData.notes && formData.notes.length > 500) {
+      newErrors.notes = "Les notes sont trop longues (max 500 caractères)"
+    }
+
+    // Validate appointment date/time is not in the past
+    if (selectedSlot) {
+      const appointmentDateTime = new Date(`${selectedSlot.date}T${selectedSlot.time}`)
+      const now = new Date()
+      
+      if (appointmentDateTime < now) {
+        newErrors.slot = "Impossible de prendre un rendez-vous à une date ou heure passée"
+      }
+    }
+
+    // Check if patient already has an appointment on the selected date
+    if (formData.patientId && selectedSlot) {
+      const patientAppointmentsOnDate = appointments.filter(
+        apt => apt.patientId === formData.patientId && 
+               apt.date === selectedSlot.date &&
+               apt.status !== "annulé"
+      )
+      
+      if (patientAppointmentsOnDate.length > 0) {
+        newErrors.patientId = "Ce patient a déjà un rendez-vous programmé pour cette date"
+      }
     }
 
     setErrors(newErrors)
@@ -265,7 +295,7 @@ export default function RendezVousPage() {
     }
   }
 
-  const handleStatusChange = async (appointmentId: string, newStatus: "confirmé" | "en_attente" | "annulé") => {
+  const handleStatusChange = async (appointmentId: string, newStatus: "confirmé" | "en_attente" | "annulé" | "en_consultation" | "terminé" | "absent") => {
     try {
       const backendStatus = appointmentHelpers.toBackendStatus(newStatus)
       await updateStatusMutation.mutateAsync({
@@ -304,6 +334,12 @@ export default function RendezVousPage() {
         return "bg-success/10 text-success border-success/20"
       case "en_attente":
         return "bg-warning/10 text-warning border-warning/20"
+      case "en_consultation":
+        return "bg-blue-500/10 text-blue-500 border-blue-500/20"
+      case "terminé":
+        return "bg-gray-500/10 text-gray-500 border-gray-500/20"
+      case "absent":
+        return "bg-orange-500/10 text-orange-500 border-orange-500/20"
       case "annulé":
         return "bg-destructive/10 text-destructive border-destructive/20"
       default:
@@ -457,12 +493,18 @@ export default function RendezVousPage() {
                         onClick={() => handleSlotClick(time)}
                         className={`
                         w-full p-4 rounded-lg border-2 transition-all text-left
-                        ${isBooked
+                        ${isBooked && appointment
                             ? appointment.status === "confirmé"
                               ? "bg-success/10 border-success/30 hover:bg-success/20"
                               : appointment.status === "en_attente"
                                 ? "bg-warning/10 border-warning/30 hover:bg-warning/20"
-                                : "bg-destructive/10 border-destructive/30 hover:bg-destructive/20"
+                                : appointment.status === "en_consultation"
+                                  ? "bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/20"
+                                  : appointment.status === "terminé"
+                                    ? "bg-gray-500/10 border-gray-500/30 hover:bg-gray-500/20"
+                                    : appointment.status === "absent"
+                                      ? "bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/20"
+                                      : "bg-destructive/10 border-destructive/30 hover:bg-destructive/20"
                             : "border-border/50 hover:bg-primary/5 hover:border-primary/30"
                           }
                       `}
@@ -509,6 +551,15 @@ export default function RendezVousPage() {
               <DialogTitle>Nouveau Rendez-vous</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-4">
+              {errors.slot && (
+                <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">
+                  <p className="text-sm text-destructive flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4" />
+                    {errors.slot}
+                  </p>
+                </div>
+              )}
+              
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Calendar className="w-4 h-4" />
                 <span>{selectedSlot?.date}</span>
@@ -640,12 +691,11 @@ export default function RendezVousPage() {
 
                 <div className="space-y-2">
                   <Label>Changer le statut</Label>
-                  <div className="flex gap-2">
+                  <div className="grid grid-cols-3 gap-2">
                     <Button
                       size="sm"
                       variant={selectedAppointment.status === "confirmé" ? "default" : "outline"}
                       onClick={() => handleStatusChange(selectedAppointment.id, "confirmé")}
-                      className="flex-1"
                       disabled={updateStatusMutation.isPending}
                     >
                       Confirmé
@@ -654,16 +704,38 @@ export default function RendezVousPage() {
                       size="sm"
                       variant={selectedAppointment.status === "en_attente" ? "default" : "outline"}
                       onClick={() => handleStatusChange(selectedAppointment.id, "en_attente")}
-                      className="flex-1"
                       disabled={updateStatusMutation.isPending}
                     >
                       En attente
                     </Button>
                     <Button
                       size="sm"
+                      variant={selectedAppointment.status === "en_consultation" ? "default" : "outline"}
+                      onClick={() => handleStatusChange(selectedAppointment.id, "en_consultation")}
+                      disabled={updateStatusMutation.isPending}
+                    >
+                      En consultation
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={selectedAppointment.status === "terminé" ? "default" : "outline"}
+                      onClick={() => handleStatusChange(selectedAppointment.id, "terminé")}
+                      disabled={updateStatusMutation.isPending}
+                    >
+                      Terminé
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={selectedAppointment.status === "absent" ? "default" : "outline"}
+                      onClick={() => handleStatusChange(selectedAppointment.id, "absent")}
+                      disabled={updateStatusMutation.isPending}
+                    >
+                      Absent
+                    </Button>
+                    <Button
+                      size="sm"
                       variant={selectedAppointment.status === "annulé" ? "default" : "outline"}
                       onClick={() => handleStatusChange(selectedAppointment.id, "annulé")}
-                      className="flex-1"
                       disabled={updateStatusMutation.isPending}
                     >
                       Annulé

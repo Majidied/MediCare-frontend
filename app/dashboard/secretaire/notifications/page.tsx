@@ -1,7 +1,7 @@
 "use client"
 
 import { DashboardLayout } from "@/components/dashboard-layout"
-import { useNotifications } from "@/lib/notifications-context"
+import { useNotifications } from "@/hooks/use-notifications"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { useToast } from "@/hooks/use-toast"
+import { validatePositiveNumber } from "@/lib/validation.utils"
 
 export default function SecretaireNotificationsPage() {
   const { billingNotifications, markBillingAsProcessed } = useNotifications()
@@ -46,10 +47,14 @@ export default function SecretaireNotificationsPage() {
   const validateForm = () => {
     const newErrors: { amount?: string } = {}
 
-    if (!amount || amount.trim() === "") {
-      newErrors.amount = "Le montant est obligatoire"
-    } else if (isNaN(Number(amount)) || Number(amount) <= 0) {
-      newErrors.amount = "Le montant doit être un nombre positif"
+    // Validate amount
+    const amountValidation = validatePositiveNumber(amount, "Le montant")
+    if (!amountValidation.valid) {
+      newErrors.amount = amountValidation.error!
+    } else if (Number(amount) > 1000000) {
+      newErrors.amount = "Le montant est trop élevé (max 1,000,000 MAD)"
+    } else if (Number(amount) < 1) {
+      newErrors.amount = "Le montant doit être au moins 1 MAD"
     }
 
     setErrors(newErrors)

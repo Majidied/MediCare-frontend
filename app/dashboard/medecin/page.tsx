@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect } from "react"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -12,14 +12,13 @@ import { prescriptionApi } from "@/api/prescription.api"
 import { useAuth } from "@/lib/auth-context"
 import { useCurrentUser } from "@/hooks/use-user"
 import { useQuery } from "@tanstack/react-query"
-import { AlertCircle, CheckCircle, Clock, Loader2, Search, Stethoscope, Users, Calendar, FileText, Bell } from "lucide-react"
+import { AlertCircle, CheckCircle, Clock, Loader2, Search, Stethoscope, Users, Calendar, FileText } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { getNotificationWebSocket, type NotificationMessage } from "@/lib/notification.websocket"
-import { useToast } from "@/hooks/use-toast"
+import { useNotifications } from "@/hooks/use-notifications"
 
 export default function MedecinDashboard() {
   const router = useRouter()
-  const { toast } = useToast()
+  const { refreshNotifications } = useNotifications()
   const today = new Date().toISOString().split("T")[0]
   const { user } = useAuth()
 
@@ -36,41 +35,8 @@ export default function MedecinDashboard() {
   const medecinIdEnv = Number(process.env.NEXT_PUBLIC_MEDECIN_ID ?? process.env.NEXT_PUBLIC_DEFAULT_MEDECIN_ID ?? 0)
   const medecinId = Number.isFinite(medecinIdFromUser) && medecinIdFromUser > 0 ? medecinIdFromUser : medecinIdEnv || 1
   const recentLimit = 5
-  const audioRef = useRef<HTMLAudioElement | null>(null)
 
-  // WebSocket connection for real-time notifications
-  useEffect(() => {
-    if (!medecinId || medecinId <= 0) return
-
-    const wsClient = getNotificationWebSocket()
-
-    // Handle incoming notifications
-    const handleNotification = (notification: NotificationMessage) => {
-      console.log('[WebSocket] Received notification:', notification)
-
-      // Play sound alert
-      if (audioRef.current) {
-        audioRef.current.play().catch(err => console.error('Failed to play sound:', err))
-      }
-
-      // Show toast notification
-      toast({
-        title: notification.title,
-        description: notification.content,
-        duration: 10000, // 10 seconds
-      })
-    }
-
-    // Connect to WebSocket
-    wsClient.connect(String(medecinId), handleNotification)
-    console.log('[WebSocket] Connected for doctor ID:', medecinId)
-
-    // Cleanup on unmount
-    return () => {
-      wsClient.disconnect()
-      console.log('[WebSocket] Disconnected')
-    }
-  }, [medecinId, toast])
+  // Note: WebSocket connection is now handled globally in NotificationsContext
 
   const {
     data: todayAppointments = [],
@@ -79,7 +45,7 @@ export default function MedecinDashboard() {
     error: todayAppointmentsErrorObj,
   } = useQuery({
     queryKey: ["rdv", "by-date", cabinetId, today],
-    queryFn: () => rdvApi.getByDate(today, cabinetId),
+    queryFn: () => rdvApi.getByDate(today, cabinetId ?? 0),
     enabled: !!cabinetId,
     staleTime: 60 * 1000,
   })
@@ -126,10 +92,10 @@ export default function MedecinDashboard() {
   } = useQuery({
     queryKey: ["patients", "by-cabinet", cabinetId],
     queryFn: async () => {
-      const { data } = await patientApi.getByCabinet(cabinetId)
+      const { data } = await patientApi.getByCabinet(cabinetId ?? 0)
       return data
     },
-    enabled: cabinetId >= 0,
+    enabled: cabinetId !== undefined && cabinetId >= 0,
     staleTime: 2 * 60 * 1000,
   })
 
@@ -140,10 +106,10 @@ export default function MedecinDashboard() {
   } = useQuery({
     queryKey: ["prescriptions", "this-week", cabinetId],
     queryFn: async () => {
-      const { data } = await prescriptionApi.getThisWeekByClinic(cabinetId)
+      const { data } = await prescriptionApi.getThisWeekByClinic(cabinetId ?? 0)
       return data
     },
-    enabled: cabinetId >= 0,
+    enabled: cabinetId !== undefined && cabinetId >= 0,
     staleTime: 2 * 60 * 1000,
   })
 
@@ -267,11 +233,6 @@ export default function MedecinDashboard() {
 
   return (
     <DashboardLayout>
-      {/* Hidden audio element for notification sound */}
-      <audio ref={audioRef} preload="auto">
-        <source src="/notification-sound.mp3" type="audio/mpeg" />
-      </audio>
-
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>

@@ -3,7 +3,7 @@
 import apiClient from './client';
 
 // Enums to match backend
-export type StatutRDV = 'CONFIRME' | 'EN_CONSULTATION' | 'ANNULE' | 'TERMINE' | 'MISSING';
+export type StatutRDV = 'CONFIRME' | 'EN_ATTENTE' | 'EN_CONSULTATION' | 'ANNULE' | 'TERMINE' | 'MISSING';
 export type MotifRDV = 'CONSULTATION' | 'CONTROL';
 
 // TypeScript interfaces matching backend DTOs
@@ -34,7 +34,7 @@ export interface Appointment {
     date: string;
     time: string;
     motif: MotifRDV;
-    status: 'confirmé' | 'en_attente' | 'annulé';
+    status: 'confirmé' | 'en_attente' | 'annulé' | 'en_consultation' | 'terminé' | 'absent';
     notes?: string;
 }
 
@@ -43,17 +43,24 @@ export const appointmentHelpers = {
     // Convert backend response to frontend appointment
     toFrontend(response: AppointmentResponse): Appointment {
         // Map backend status to frontend status
-        let frontendStatus: 'confirmé' | 'en_attente' | 'annulé';
+        let frontendStatus: 'confirmé' | 'en_attente' | 'annulé' | 'en_consultation' | 'terminé' | 'absent';
         switch (response.statutRDV) {
             case 'CONFIRME':
-            case 'EN_CONSULTATION':
-            case 'TERMINE':
                 frontendStatus = 'confirmé';
                 break;
+            case 'EN_CONSULTATION':
+                frontendStatus = 'en_consultation';
+                break;
+            case 'TERMINE':
+                frontendStatus = 'terminé';
+                break;
             case 'ANNULE':
-            case 'MISSING':
                 frontendStatus = 'annulé';
                 break;
+            case 'MISSING':
+                frontendStatus = 'absent';
+                break;
+            case 'EN_ATTENTE':
             default:
                 frontendStatus = 'en_attente';
                 break;
@@ -101,10 +108,17 @@ export const appointmentHelpers = {
     toBackendStatus(status: string): StatutRDV {
         switch (status) {
             case 'confirmé':
-            case 'en_attente':
                 return 'CONFIRME';
+            case 'en_attente':
+                return 'EN_ATTENTE';
+            case 'en_consultation':
+                return 'EN_CONSULTATION';
             case 'annulé':
                 return 'ANNULE';
+            case 'terminé':
+                return 'TERMINE';
+            case 'absent':
+                return 'MISSING';
             default:
                 return 'CONFIRME';
         }

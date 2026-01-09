@@ -10,6 +10,9 @@ export interface NotificationMessage {
     status: string;
     creationDate: string;
     readDate?: string;
+    patientId?: number;
+    appointmentId?: number;
+    consultationId?: number;
 }
 
 /**
@@ -31,7 +34,9 @@ export class NotificationWebSocketClient {
         }
 
         // Create SockJS instance
-        const socket = new SockJS('http://localhost:8080/ws-notifications');
+        // Use notification service port (8098) or gateway if configured
+        const wsUrl = process.env.NEXT_PUBLIC_NOTIFICATION_WS_URL || 'http://localhost:8098/ws-notifications';
+        const socket = new SockJS(wsUrl);
 
         // Create STOMP client
         this.client = new Client({

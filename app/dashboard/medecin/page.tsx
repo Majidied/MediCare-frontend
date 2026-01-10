@@ -7,12 +7,13 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { rdvApi, type RDVResponse, type StatutRDV } from "@/api/rdv.api"
 import { consultationApi, type ConsultationSummaryDTO, type MedecinWeeklyStatsDTO } from "@/api/consultation.api"
+import { clinicApi } from "@/api/clinic.api"
 import { patientApi } from "@/api/patient.api"
 import { prescriptionApi } from "@/api/prescription.api"
 import { useAuth } from "@/lib/auth-context"
 import { useCurrentUser } from "@/hooks/use-user"
 import { useQuery } from "@tanstack/react-query"
-import { AlertCircle, CheckCircle, Clock, Loader2, Search, Stethoscope, Users, Calendar, FileText } from "lucide-react"
+import { AlertCircle, CheckCircle, Clock, Loader2, Search, Stethoscope, Users, Calendar, FileText, Building2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useNotifications } from "@/hooks/use-notifications"
 
@@ -48,6 +49,17 @@ export default function MedecinDashboard() {
     queryFn: () => rdvApi.getByDate(today, cabinetId ?? 0),
     enabled: !!cabinetId,
     staleTime: 60 * 1000,
+  })
+
+  const { data: clinicData } = useQuery({
+    queryKey: ["clinic", cabinetId],
+    queryFn: async () => {
+      const { data } = await clinicApi.getById(cabinetId ?? 0)
+      console.log(" 1212 Clinic data:", data)
+      return data
+    },
+    enabled: !!cabinetId && cabinetId > 0,
+    staleTime: 5 * 60 * 1000,
   })
 
   const totalAppointments = todayAppointments.length
@@ -235,9 +247,15 @@ export default function MedecinDashboard() {
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Dashboard Médecin</h1>
-            <p className="text-muted-foreground">Bienvenue Dr. Martin - Vue d'ensemble de votre journée</p>
+          <div className="space-y-2">
+            <h1 className="text-3xl font-bold tracking-tight">Bonjour, {userDetails?.name || user?.name || "Médecin"}</h1>
+            <p className="text-muted-foreground">Bienvenue sur votre espace médecin</p>
+            <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 bg-gradient-to-r from-primary/80 to-accent/80 text-white shadow-lg shadow-primary/30">
+              <Building2 className="w-4 h-4" />
+              <span className="text-sm font-medium">
+                {clinicData?.name || userDetails?.clinicName || userDetails?.clinic?.name || "Votre cabinet"}
+              </span>
+            </div>
           </div>
         </div>
 

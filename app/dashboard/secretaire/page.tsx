@@ -3,10 +3,12 @@
 import { useAuth } from "@/lib/auth-context"
 import { useCurrentUser } from "@/hooks/use-user"
 import { DashboardLayout } from "@/components/dashboard-layout"
-import { Calendar, Users, Clock, FileText, Activity } from "lucide-react"
+import { Calendar, Users, Clock, FileText, Activity, Building2 } from "lucide-react"
 import { useAppointmentsByDate } from "@/hooks/use-appointment"
 import { getTodayLocalDateString } from "@/lib/date.utils"
 import { useMemo } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { clinicApi } from "@/api/clinic.api"
 
 export default function SecretaireDashboard() {
   const { user } = useAuth()
@@ -14,6 +16,16 @@ export default function SecretaireDashboard() {
   // Fetch user details directly using React Query
   const { data: userDetails } = useCurrentUser(user?.email)
   const cabinetId = userDetails?.clinicId ?? 0
+
+  const { data: clinicData } = useQuery({
+    queryKey: ["clinic", cabinetId],
+    queryFn: async () => {
+      const { data } = await clinicApi.getById(cabinetId)
+      return data
+    },
+    enabled: cabinetId > 0,
+    staleTime: 5 * 60 * 1000,
+  })
 
   // Debug logging
   console.log("[SecretaireDashboard] User from auth:", user)
@@ -90,6 +102,10 @@ export default function SecretaireDashboard() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Bonjour, {user?.name}</h1>
           <p className="text-muted-foreground">Bienvenue sur votre espace secrétaire</p>
+          <div className="inline-flex items-center gap-2 mt-2 rounded-full px-3 py-1 bg-gradient-to-r from-primary/80 to-accent/80 text-white shadow-lg shadow-primary/30">
+            <Building2 className="w-4 h-4" />
+            <span className="text-sm font-medium">{clinicData?.name || userDetails?.clinicName || userDetails?.clinic?.name || "Votre cabinet"}</span>
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

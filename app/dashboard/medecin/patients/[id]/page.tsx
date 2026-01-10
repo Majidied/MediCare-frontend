@@ -34,7 +34,7 @@ import {
   CheckCircle,
   Loader2,
 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
 import { usePatient } from "@/hooks/use-patient"
@@ -138,6 +138,84 @@ export default function PatientDetailsPage() {
   const [selectedMedications, setSelectedMedications] = useState<
     Array<{ medicationId: number | ""; posologie: string; duree: string; commentaire?: string }>
   >([])
+  const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const signaturePadRef = useRef<any>(null)
+  const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null)
+  const [isSignatureReady, setIsSignatureReady] = useState(false)
+
+  useEffect(() => {
+    let isMounted = true
+
+    const initSignaturePad = async () => {
+      if (!ordonnanceDialogOpen) return
+
+      try {
+        const { default: SignaturePad } = await import("signature_pad")
+        const canvas = signatureCanvasRef.current
+
+        if (!isMounted || !canvas) return
+
+        const ratio = Math.max(window.devicePixelRatio || 1, 1)
+        const displayHeight = canvas.offsetHeight || 200
+        const displayWidth = canvas.offsetWidth || 600
+
+        canvas.width = displayWidth * ratio
+        canvas.height = displayHeight * ratio
+        const context = canvas.getContext("2d")
+        context?.scale(ratio, ratio)
+
+        const pad = new SignaturePad(canvas, {
+          backgroundColor: "#ffffff",
+          penColor: "#0f172a",
+        })
+
+        pad.clear()
+        signaturePadRef.current = pad
+        setIsSignatureReady(true)
+      } catch (err) {
+        console.error("Impossible de charger la signature", err)
+        toast({
+          title: "Module de signature indisponible",
+          description: "Veuillez recharger la page ou vérifier votre connexion.",
+          variant: "destructive",
+        })
+      }
+    }
+
+    initSignaturePad()
+
+    return () => {
+      isMounted = false
+      signaturePadRef.current = null
+      setIsSignatureReady(false)
+    }
+  }, [ordonnanceDialogOpen, toast])
+
+  const handleSaveSignature = () => {
+    const pad = signaturePadRef.current
+    if (!pad || pad.isEmpty()) {
+      toast({
+        title: "Signature requise",
+        description: "Dessinez votre signature avant de l'enregistrer.",
+        variant: "destructive",
+      })
+      return
+    }
+    setSignatureDataUrl(pad.toDataURL("image/png"))
+  }
+
+  const handleClearSignature = () => {
+    signaturePadRef.current?.clear?.()
+    setSignatureDataUrl(null)
+  }
+
+  const closeOrdonnanceDialog = () => {
+    setOrdonnanceDialogOpen(false)
+    setEditConsultationId(null)
+    setSelectedMedications([])
+    setSignatureDataUrl(null)
+    signaturePadRef.current?.clear?.()
+  }
 
   const updateConsultationsState = (
     updater: ConsultationViewModel[] | ((prev: ConsultationViewModel[]) => ConsultationViewModel[]),
@@ -403,6 +481,10 @@ export default function PatientDetailsPage() {
         doctorId: medecinId,
         clinicId: (patient as Patient).cabinetId ?? 0,
         prescriptionDate: new Date().toISOString().split("T")[0],
+        digitalSignature:
+          (signaturePadRef.current && !signaturePadRef.current.isEmpty()
+            ? signaturePadRef.current.toDataURL("image/png")
+            : signatureDataUrl) || undefined,
         lines: validLines.map((line) => {
           const med = medications.find((m) => m.id === Number(line.medicationId))
           return {
@@ -417,10 +499,18 @@ export default function PatientDetailsPage() {
       }
 
       try {
+        if (!payload.digitalSignature) {
+          toast({
+            title: "Signature requise",
+            description: "Veuillez ajouter et enregistrer la signature du médecin avant de générer l'ordonnance.",
+            variant: "destructive",
+          })
+          return
+        }
+
         const { data: created } = await prescriptionApi.create(payload)
         updateConsultationsState((prev) => prev.map((c) => (c.id === consultationId ? { ...c, prescription: created } : c)))
-        setOrdonnanceDialogOpen(false)
-        setSelectedMedications([])
+        closeOrdonnanceDialog()
 
         toast({
           title: "Ordonnance créée",
@@ -459,10 +549,82 @@ export default function PatientDetailsPage() {
   }
 
   const handlePrintOrdonnance = (prescription: PrescriptionDTO) => {
-    toast({
-      title: "Impression",
-      description: "L'ordonnance est en cours d'impression...",
-    })
+    if (!patient) {
+      toast({
+        title: "Patient introuvable",
+        description: "Impossible de préparer l'impression sans les informations patient.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const printWindow = window.open("", "PRINT", "height=900,width=700")
+
+    if (!printWindow) {
+      toast({
+        title: "Fenêtre bloquée",
+        description: "Veuillez autoriser les fenêtres surgissantes pour lancer l'impression.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const patientName = `${patient.nom ?? ""} ${patient.prenom ?? ""}`.trim()
+    const doctorName = [userDetails?.prenom, userDetails?.nom].filter(Boolean).join(" ") || "Médecin"
+    const clinicName = userDetails?.clinicName || "Cabinet"
+    const linesHtml = prescription.lines
+      .map((line) => {
+        const medicationName = line.medicationName || "Médicament"
+        const duration = line.durationDays ? `${line.durationDays} jours` : ""
+        const comment = line.comment ? `<div style="color:#475569; font-size:12px; margin-top:4px;">${line.comment}</div>` : ""
+        return `<li style="margin-bottom:10px;"><strong>${medicationName}</strong><div>${line.dosage}</div><div style="color:#475569; font-size:12px;">${duration}</div>${comment}</li>`
+      })
+      .join("")
+
+    const signatureHtml = prescription.digitalSignature
+      ? `<div class="signature"><div style="font-size:12px; color:#475569; margin-bottom:6px;">Signature du médecin</div><img src="${prescription.digitalSignature}" alt="Signature du médecin" /></div>`
+      : `<div class="signature missing">Signature non fournie</div>`
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Ordonnance - ${patientName}</title>
+          <style>
+            body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; padding: 24px; }
+            .header { display: flex; justify-content: space-between; margin-bottom: 16px; }
+            .card { border: 1px solid #e2e8f0; padding: 16px; border-radius: 12px; margin-bottom: 16px; background: #fff; }
+            ul { padding-left: 20px; margin: 0; }
+            .signature { margin-top: 24px; }
+            .signature img { max-width: 220px; height: auto; border: 1px solid #e2e8f0; padding: 8px; border-radius: 8px; background: #fff; }
+            .signature.missing { padding: 12px; border: 1px dashed #cbd5e1; color: #475569; border-radius: 8px; display: inline-block; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <div style="font-size:22px; font-weight:700;">Dr. ${doctorName}</div>
+              <div style="color:#475569;">${clinicName}</div>
+              <div style="color:#475569; font-size:12px;">${patient.adresse?.ville ?? ""}</div>
+            </div>
+            <div style="text-align:right; color:#475569;">${new Date(prescription.prescriptionDate).toLocaleDateString()}</div>
+          </div>
+          <div class="card">
+            <div style="font-weight:600; margin-bottom:6px;">Patient</div>
+            <div>${patientName}</div>
+            <div style="color:#475569; font-size:12px;">${patient.cin ?? ""}</div>
+          </div>
+          <div class="card">
+            <div style="font-weight:600; margin-bottom:6px;">Ordonnance</div>
+            <ul>${linesHtml}</ul>
+          </div>
+          ${signatureHtml}
+        </body>
+      </html>
+    `)
+
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.print()
   }
 
   const addMedicationRow = () => {
@@ -755,104 +917,16 @@ export default function PatientDetailsPage() {
                       Annuler
                     </Button>
                     <Button
-                      className="bg-primary hover:bg-primary/90 glow-primary"
-                      disabled={!hasEligibleRdv || todayRdvLoading}
+                      onClick={handleAddConsultation}
+                      className="bg-primary hover:bg-primary/90"
+                      disabled={createConsultationMutation.isPending}
                     >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Nouvelle consultation
+                      {isEditMode ? "Mettre à jour" : "Enregistrer"}
                     </Button>
-                  </DialogTrigger>
-                )}
-                <DialogContent className="glass-card max-w-2xl">
-                  <DialogHeader>
-                    <DialogTitle>{isEditMode ? "Modifier la Consultation" : "Nouvelle Consultation"}</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    {!hasEligibleRdv && !todayRdvLoading && (
-                      <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/5 text-sm text-destructive flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4" />
-                        Aucun rendez-vous valide trouvé pour aujourd'hui.
-                      </div>
-                    )}
-                    <div>
-                      <Label htmlFor="date">Date *</Label>
-                      <Input
-                        id="date"
-                        type="date"
-                        value={newConsultation.dateConsultation.split("T")[0]}
-                        onChange={(e) =>
-                          setNewConsultation({
-                            ...newConsultation,
-                            dateConsultation: new Date(e.target.value).toISOString(),
-                          })
-                        }
-                        className="bg-background/50"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="type">Type *</Label>
-                      <Select
-                        value={newConsultation.type}
-                        onValueChange={(value) => setNewConsultation({ ...newConsultation, type: value })}
-                      >
-                        <SelectTrigger id="type" className="bg-background/50">
-                          <SelectValue placeholder="Sélectionner un type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="CONSULTATION">CONSULTATION</SelectItem>
-                          <SelectItem value="CONTROLE">CONTROLE</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label htmlFor="diagnostic">Diagnostic *</Label>
-                      <Textarea
-                        id="diagnostic"
-                        value={newConsultation.diagnostic}
-                        onChange={(e) => setNewConsultation({ ...newConsultation, diagnostic: e.target.value })}
-                        placeholder="Diagnostic médical"
-                        className="bg-background/50"
-                        rows={3}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="traitement">Traitement</Label>
-                      <Textarea
-                        id="traitement"
-                        value={newConsultation.traitement}
-                        onChange={(e) => setNewConsultation({ ...newConsultation, traitement: e.target.value })}
-                        placeholder="Traitement prescrit"
-                        className="bg-background/50"
-                        rows={3}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="notes">Notes</Label>
-                      <Textarea
-                        id="notes"
-                        value={newConsultation.observations}
-                        onChange={(e) => setNewConsultation({ ...newConsultation, observations: e.target.value })}
-                        placeholder="Notes supplémentaires"
-                        className="bg-background/50"
-                        rows={2}
-                      />
-                    </div>
-                    <div className="flex justify-end gap-2">
-                      <Button variant="outline" onClick={() => setConsultationDialogOpen(false)}>
-                        Annuler
-                      </Button>
-                      <Button
-                        onClick={handleAddConsultation}
-                        className="bg-primary hover:bg-primary/90"
-                        disabled={createConsultationMutation.isPending}
-                      >
-                        {isEditMode ? "Mettre à jour" : "Enregistrer"}
-                      </Button>
-                    </div>
                   </div>
-                </DialogContent>
-              </Dialog>
-            </div>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
 
           {consultations.length > 0 ? (
@@ -955,14 +1029,28 @@ export default function PatientDetailsPage() {
                               </div>
                             )
                           })}
+                          {consultation.prescription.digitalSignature && (
+                            <div className="pt-3">
+                              <p className="text-xs text-muted-foreground mb-1">Signature du médecin</p>
+                              <img
+                                src={consultation.prescription.digitalSignature}
+                                alt="Signature du médecin"
+                                className="h-16 rounded border bg-white p-1"
+                              />
+                            </div>
+                          )}
                         </div>
                       </div>
                     ) : (
                       <Dialog
                         open={ordonnanceDialogOpen && editConsultationId === String(consultation.id)}
                         onOpenChange={(open) => {
-                          setOrdonnanceDialogOpen(open)
-                          if (open) setEditConsultationId(String(consultation.id))
+                          if (!open) {
+                            closeOrdonnanceDialog()
+                            return
+                          }
+                          setOrdonnanceDialogOpen(true)
+                          setEditConsultationId(String(consultation.id))
                         }}
                       >
                         <DialogTrigger asChild>
@@ -1042,12 +1130,42 @@ export default function PatientDetailsPage() {
                                 <p>Aucun médicament ajouté</p>
                               </div>
                             )}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <Label>Signature du médecin</Label>
+                                <span className="text-xs text-muted-foreground">Obligatoire pour l'impression</span>
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                Dessinez votre signature puis cliquez sur «&nbsp;Enregistrer la signature&nbsp;». Elle sera envoyée avec l'ordonnance
+                                et utilisée à l'impression.
+                              </p>
+                              <div className="rounded-lg border bg-white p-2 shadow-sm">
+                                <canvas ref={signatureCanvasRef} className="w-full h-48" />
+                              </div>
+                              <div className="flex justify-end gap-2">
+                                <Button variant="outline" size="sm" onClick={handleClearSignature}>
+                                  Effacer
+                                </Button>
+                                <Button size="sm" onClick={handleSaveSignature} disabled={!isSignatureReady}>
+                                  Enregistrer la signature
+                                </Button>
+                              </div>
+                              {signatureDataUrl && (
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                  <span>Aperçu:</span>
+                                  <img
+                                    src={signatureDataUrl}
+                                    alt="Signature du médecin"
+                                    className="h-16 rounded border bg-white p-1"
+                                  />
+                                </div>
+                              )}
+                            </div>
                             <div className="flex justify-end gap-2 pt-4">
                               <Button
                                 variant="outline"
                                 onClick={() => {
-                                  setOrdonnanceDialogOpen(false)
-                                  setSelectedMedications([])
+                                  closeOrdonnanceDialog()
                                 }}
                               >
                                 Annuler

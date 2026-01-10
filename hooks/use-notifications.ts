@@ -261,7 +261,7 @@ export function useNotifications() {
 
     // Computed values
     const unreadCount = notifications.filter((n) => n.status === 'pending').length
-    const unreadBillingCount = billingNotifications.filter((n) => n.status === 'pending').length
+    const unreadBillingCount = notifications.filter((n) => n.type === 'BILLING_READY' && n.status === 'pending').length
 
     return {
         // Notifications from backend

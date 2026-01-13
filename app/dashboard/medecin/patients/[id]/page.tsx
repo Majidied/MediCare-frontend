@@ -162,7 +162,8 @@ export default function PatientDetailsPage() {
       if (!ordonnanceDialogOpen) return
 
       try {
-        const { default: SignaturePad } = await import("signature_pad")
+        // @ts-ignore: signature_pad has no types in this project; import as any
+        const SignaturePad = (await import("signature_pad")).default as any
         const canvas = signatureCanvasRef.current
 
         if (!isMounted || !canvas) return

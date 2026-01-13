@@ -586,8 +586,8 @@ export default function PatientDetailsPage() {
     }
 
     const patientName = `${patient.nom ?? ""} ${patient.prenom ?? ""}`.trim()
-    const doctorName = [userDetails?.prenom, userDetails?.nom].filter(Boolean).join(" ") || "Médecin"
-    const clinicName = userDetails?.clinicName || "Cabinet"
+    const doctorName = [userDetails?.firstName, userDetails?.lastName].filter(Boolean).join(" ") || "Médecin"
+    const clinicName = "Cabinet Médical"
     const linesHtml = prescription.lines
       .map((line) => {
         const medicationName = line.medicationName || "Médicament"

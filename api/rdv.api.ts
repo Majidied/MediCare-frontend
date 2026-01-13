@@ -1,6 +1,6 @@
 import apiClient from './client'
 
-export type StatutRDV = 'CONFIRME' | 'EN_CONSULTATION' | 'ANNULE' | 'TERMINE' | 'MISSING'
+export type StatutRDV = 'CONFIRME' | 'EN_ATTENTE' | 'EN_CONSULTATION' | 'ANNULE' | 'TERMINE' | 'MISSING'
 
 export interface RDVResponse {
   id: number

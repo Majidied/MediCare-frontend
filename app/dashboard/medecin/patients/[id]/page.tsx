@@ -122,6 +122,18 @@ export default function PatientDetailsPage() {
   const deleteConsultationMutation = useMutation({
     mutationFn: (consultationId: number) => consultationApi.delete(consultationId),
   })
+  const addPrescriptionLineMutation = useMutation({
+    mutationFn: async ({ prescriptionId, line }: { prescriptionId: number; line: PrescriptionLineDTO }) => {
+      const response = await prescriptionApi.addLine(prescriptionId, line)
+      return response.data
+    },
+  })
+  const createPrescriptionMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const { data } = await prescriptionApi.create(payload)
+      return data
+    },
+  })
   const [patient, setPatient] = useState<Patient | null>(null)
   const [consultations, setConsultations] = useState<ConsultationViewModel[]>([])
   const [consultationDialogOpen, setConsultationDialogOpen] = useState(false)
@@ -367,19 +379,22 @@ export default function PatientDetailsPage() {
 
     if (hasExistingPrescription && consultation.prescription?.id) {
       try {
-        const lastResponse = await validLines.reduce<Promise<PrescriptionDTO>>(async (prevPromise, line) => {
-          await prevPromise
+        let lastResponse = consultation.prescription
+        
+        for (const line of validLines) {
           const med = medications.find((m) => m.id === Number(line.medicationId))
-          const response = await prescriptionApi.addLine(consultation.prescription!.id!, {
-            medicationId: Number(line.medicationId),
-            dosage: line.posologie,
-            durationDays: Number.parseInt(line.duree, 10) || 0,
-            comment: line.commentaire,
-            lineType: "MEDICATION",
-            medicationName: med?.commercialName,
+          lastResponse = await addPrescriptionLineMutation.mutateAsync({
+            prescriptionId: consultation.prescription!.id!,
+            line: {
+              medicationId: Number(line.medicationId),
+              dosage: line.posologie,
+              durationDays: Number.parseInt(line.duree, 10) || 0,
+              comment: line.commentaire,
+              lineType: "MEDICATION",
+              medicationName: med?.commercialName,
+            },
           })
-          return response.data
-        }, Promise.resolve(consultation.prescription))
+        }
 
         updateConsultationsState((prev) => prev.map((c) => (c.id === consultationId ? { ...c, prescription: lastResponse } : c)))
         setOrdonnanceDialogOpen(false)
@@ -417,7 +432,7 @@ export default function PatientDetailsPage() {
       }
 
       try {
-        const { data: created } = await prescriptionApi.create(payload)
+        const created = await createPrescriptionMutation.mutateAsync(payload)
         updateConsultationsState((prev) => prev.map((c) => (c.id === consultationId ? { ...c, prescription: created } : c)))
         setOrdonnanceDialogOpen(false)
         setSelectedMedications([])

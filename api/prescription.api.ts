@@ -20,6 +20,7 @@ export interface PrescriptionDTO {
   doctorId: number
   clinicId: number
   prescriptionDate: string
+  digitalSignature?: string
   lines: PrescriptionLineDTO[]
 }
 
@@ -29,6 +30,7 @@ export interface CreatePrescriptionDTO {
   doctorId: number
   clinicId: number
   prescriptionDate: string
+  digitalSignature?: string
   lines: Array<Pick<PrescriptionLineDTO, "medicationId" | "dosage" | "durationDays" | "comment" | "lineType" | "medicationName">>
 }
 

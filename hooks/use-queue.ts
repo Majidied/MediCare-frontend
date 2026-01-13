@@ -53,6 +53,11 @@ export function useAddToQueue() {
                 (old) => old ? old.map(apt => apt.id === data.id ? data : apt) : [data]
             );
         },
+        onSettled: () => {
+            // Invalidate queries to ensure data is fresh
+            queryClient.invalidateQueries({ queryKey: ['queue'] });
+            queryClient.invalidateQueries({ queryKey: ['appointments'] });
+        },
     });
 }
 
@@ -109,6 +114,11 @@ export function useRemoveFromQueue() {
                 (old) => old ? old.map(apt => apt.id === data.id ? data : apt) : [data]
             );
         },
+        onSettled: () => {
+            // Invalidate queries to ensure data is fresh
+            queryClient.invalidateQueries({ queryKey: ['queue'] });
+            queryClient.invalidateQueries({ queryKey: ['appointments'] });
+        },
     });
 }
 
@@ -140,13 +150,11 @@ export function useCallNext() {
                 previousData.set(query.queryKey, query.state.data);
             });
 
-            // Optimistically update status in all caches
+            // Optimistically REMOVE from queue (since it's now in consultation)
             queryCache.findAll({ queryKey: ['queue', 'by-date'] }).forEach(query => {
                 queryClient.setQueryData<AppointmentResponse[]>(
                     query.queryKey,
-                    (old) => old ? old.map(apt =>
-                        apt.id === appointmentId ? { ...apt, statutRDV: 'EN_CONSULTATION' as const } : apt
-                    ) : []
+                    (old) => old ? old.filter(apt => apt.id !== appointmentId) : []
                 );
             });
 
@@ -171,10 +179,10 @@ export function useCallNext() {
             }
         },
         onSuccess: (data) => {
-            // Update with actual server response
+            // Remove from queue cache (now in consultation)
             queryClient.setQueryData<AppointmentResponse[]>(
                 ['queue', 'by-date', data.date, data.cabinetId],
-                (old) => old ? old.map(apt => apt.id === data.id ? data : apt) : [data]
+                (old) => old ? old.filter(apt => apt.id !== data.id) : []
             );
 
             queryClient.setQueryData<AppointmentResponse[]>(
@@ -184,6 +192,11 @@ export function useCallNext() {
 
             // Update in-consultation cache
             queryClient.setQueryData(['appointments', 'in-consultation', data.date, data.cabinetId], data);
+        },
+        onSettled: () => {
+            // Invalidate queries to ensure data is fresh after state changes
+            queryClient.invalidateQueries({ queryKey: ['queue'] });
+            queryClient.invalidateQueries({ queryKey: ['appointments'] });
         },
     });
 }

@@ -23,7 +23,7 @@ export function useQueue(date: string, cabinetId: number) {
 
 /**
  * Hook to add appointment to queue
- * Optimized: Optimistic update for instant UI feedback
+ * Adds appointment to queue and updates status to EN_ATTENTE
  */
 export function useAddToQueue() {
     const queryClient = useQueryClient();
@@ -34,29 +34,32 @@ export function useAddToQueue() {
             return response.data;
         },
         onMutate: async (appointmentId) => {
-            // We don't have enough info to optimistically update, so just cancel outgoing requests
+            // Cancel outgoing requests to prevent race conditions
             await queryClient.cancelQueries({ queryKey: ['queue'] });
             await queryClient.cancelQueries({ queryKey: ['appointments'] });
 
             return { appointmentId };
         },
         onSuccess: (data) => {
-            // Update queue cache
+            // Add to queue cache (only if not already there)
             queryClient.setQueryData<AppointmentResponse[]>(
                 ['queue', 'by-date', data.date, data.cabinetId],
-                (old) => old ? [...old, data] : [data]
+                (old) => {
+                    if (!old) return [data];
+                    // Avoid duplicates
+                    const exists = old.some(apt => apt.id === data.id);
+                    if (exists) {
+                        return old.map(apt => apt.id === data.id ? data : apt);
+                    }
+                    return [...old, data];
+                }
             );
 
-            // Update appointment cache
+            // Update appointment status in appointments cache
             queryClient.setQueryData<AppointmentResponse[]>(
                 ['appointments', 'by-date', data.date, data.cabinetId],
                 (old) => old ? old.map(apt => apt.id === data.id ? data : apt) : [data]
             );
-        },
-        onSettled: () => {
-            // Invalidate queries to ensure data is fresh
-            queryClient.invalidateQueries({ queryKey: ['queue'] });
-            queryClient.invalidateQueries({ queryKey: ['appointments'] });
         },
     });
 }
@@ -114,17 +117,13 @@ export function useRemoveFromQueue() {
                 (old) => old ? old.map(apt => apt.id === data.id ? data : apt) : [data]
             );
         },
-        onSettled: () => {
-            // Invalidate queries to ensure data is fresh
-            queryClient.invalidateQueries({ queryKey: ['queue'] });
-            queryClient.invalidateQueries({ queryKey: ['appointments'] });
-        },
     });
 }
 
 /**
  * Hook to call next patient (move to EN_CONSULTATION)
  * Optimized: Optimistic update for instant UI feedback
+ * IMPORTANT: This REMOVES the patient from the queue and sets them as in-consultation
  */
 export function useCallNext() {
     const queryClient = useQueryClient();
@@ -150,14 +149,22 @@ export function useCallNext() {
                 previousData.set(query.queryKey, query.state.data);
             });
 
-            // Optimistically REMOVE from queue (since it's now in consultation)
+            // Find the appointment to get its data for in-consultation
+            let appointmentData: AppointmentResponse | undefined;
+
+            // Optimistically REMOVE from queue (not just update status)
             queryCache.findAll({ queryKey: ['queue', 'by-date'] }).forEach(query => {
+                const queueData = queryClient.getQueryData<AppointmentResponse[]>(query.queryKey);
+                if (queueData) {
+                    appointmentData = queueData.find(apt => apt.id === appointmentId);
+                }
                 queryClient.setQueryData<AppointmentResponse[]>(
                     query.queryKey,
                     (old) => old ? old.filter(apt => apt.id !== appointmentId) : []
                 );
             });
 
+            // Update status in appointments cache
             queryCache.findAll({ queryKey: ['appointments', 'by-date'] }).forEach(query => {
                 queryClient.setQueryData<AppointmentResponse[]>(
                     query.queryKey,
@@ -166,6 +173,16 @@ export function useCallNext() {
                     ) : []
                 );
             });
+
+            // Optimistically set in-consultation
+            if (appointmentData) {
+                queryCache.findAll({ queryKey: ['appointments', 'in-consultation'] }).forEach(query => {
+                    queryClient.setQueryData<AppointmentResponse | null>(
+                        query.queryKey,
+                        { ...appointmentData!, statutRDV: 'EN_CONSULTATION' as const }
+                    );
+                });
+            }
 
             return { previousData };
         },
@@ -179,24 +196,20 @@ export function useCallNext() {
             }
         },
         onSuccess: (data) => {
-            // Remove from queue cache (now in consultation)
+            // REMOVE from queue cache (patient is now in consultation, not in queue)
             queryClient.setQueryData<AppointmentResponse[]>(
                 ['queue', 'by-date', data.date, data.cabinetId],
                 (old) => old ? old.filter(apt => apt.id !== data.id) : []
             );
 
+            // Update appointments cache with new status
             queryClient.setQueryData<AppointmentResponse[]>(
                 ['appointments', 'by-date', data.date, data.cabinetId],
                 (old) => old ? old.map(apt => apt.id === data.id ? data : apt) : [data]
             );
 
-            // Update in-consultation cache
+            // Set as current in-consultation patient
             queryClient.setQueryData(['appointments', 'in-consultation', data.date, data.cabinetId], data);
-        },
-        onSettled: () => {
-            // Invalidate queries to ensure data is fresh after state changes
-            queryClient.invalidateQueries({ queryKey: ['queue'] });
-            queryClient.invalidateQueries({ queryKey: ['appointments'] });
         },
     });
 }

@@ -21,17 +21,21 @@ export interface NotificationMessage {
 export class NotificationWebSocketClient {
     private client: Client | null = null;
     private isConnected: boolean = false;
+    private currentRole: string | null = null;
 
     /**
-     * Connect to the WebSocket server and subscribe to doctor notifications
-     * @param doctorId - The ID of the doctor receiving notifications
+     * Connect to the WebSocket server and subscribe to user notifications
+     * @param userId - The ID of the user (doctor or secretary) receiving notifications
      * @param onNotification - Callback function when a notification is received
+     * @param role - The role of the user ('medecin' or 'secretaire')
      */
-    connect(doctorId: string, onNotification: (notification: NotificationMessage) => void): void {
+    connect(userId: string, onNotification: (notification: NotificationMessage) => void, role?: string): void {
         if (this.isConnected) {
             console.warn('WebSocket is already connected');
             return;
         }
+
+        this.currentRole = role || 'medecin';
 
         // Create SockJS instance
         // Use notification service port (8098) or gateway if configured
@@ -54,8 +58,11 @@ export class NotificationWebSocketClient {
                 console.log('WebSocket connected successfully');
                 this.isConnected = true;
 
-                // Subscribe to doctor-specific notifications
-                const topic = `/topic/doctor/${doctorId}/notifications`;
+                // Subscribe to user-specific notifications based on role
+                // For doctors: /topic/doctor/{id}/notifications
+                // For secretaries: /topic/user/{id}/notifications (or same as doctor topic)
+                const topic = `/topic/doctor/${userId}/notifications`;
+
                 this.client?.subscribe(topic, (message) => {
                     try {
                         const notification = JSON.parse(message.body) as NotificationMessage;
@@ -67,6 +74,21 @@ export class NotificationWebSocketClient {
                 });
 
                 console.log(`Subscribed to ${topic}`);
+
+                // Also subscribe to general clinic notifications if secretary
+                if (this.currentRole === 'secretaire') {
+                    const clinicTopic = `/topic/clinic/notifications`;
+                    this.client?.subscribe(clinicTopic, (message) => {
+                        try {
+                            const notification = JSON.parse(message.body) as NotificationMessage;
+                            console.log('Received clinic notification:', notification);
+                            onNotification(notification);
+                        } catch (error) {
+                            console.error('Error parsing clinic notification:', error);
+                        }
+                    });
+                    console.log(`Also subscribed to ${clinicTopic}`);
+                }
             },
 
             onDisconnect: () => {

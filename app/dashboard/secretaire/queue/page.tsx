@@ -63,6 +63,19 @@ export default function QueuePage() {
     return () => clearInterval(intervalId)
   }, [refetchAppointments, refetchQueue, refetchInConsultation])
 
+  // Refetch on window focus for better real-time experience
+  useEffect(() => {
+    const handleFocus = () => {
+      console.log('[QueuePage] Window focused, refetching data...')
+      refetchAppointments()
+      refetchQueue()
+      refetchInConsultation()
+    }
+
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [refetchAppointments, refetchQueue, refetchInConsultation])
+
   // Manual refresh handler
   const handleRefresh = () => {
     refetchAppointments()
@@ -100,19 +113,23 @@ export default function QueuePage() {
   }, [appointmentsRaw])
 
   const queue = useMemo(() => {
-    return queueRaw.map((apt: any) => {
-      const frontendApt = appointmentHelpers.toFrontend(apt)
-      return {
-        id: frontendApt.id,
-        patientId: frontendApt.patientId,
-        patientName: frontendApt.patientName,
-        time: frontendApt.time,
-        reason: frontendApt.motif,
-        urgency: "normal" as const,
-        status: "inQueue" as const,
-        queuePosition: apt.queuePosition,
-      }
-    }).sort((a: any, b: any) => (a.queuePosition || 0) - (b.queuePosition || 0))
+    return queueRaw
+      // IMPORTANT: Filter to only show EN_ATTENTE patients in the queue
+      // Patients with EN_CONSULTATION should NOT appear in the waiting list
+      .filter((apt: any) => apt.statutRDV === 'EN_ATTENTE')
+      .map((apt: any) => {
+        const frontendApt = appointmentHelpers.toFrontend(apt)
+        return {
+          id: frontendApt.id,
+          patientId: frontendApt.patientId,
+          patientName: frontendApt.patientName,
+          time: frontendApt.time,
+          reason: frontendApt.motif,
+          urgency: "normal" as const,
+          status: "inQueue" as const,
+          queuePosition: apt.queuePosition,
+        }
+      }).sort((a: any, b: any) => (a.queuePosition || 0) - (b.queuePosition || 0))
   }, [queueRaw])
 
   // Convert in consultation data to frontend format

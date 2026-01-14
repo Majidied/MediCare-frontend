@@ -37,7 +37,8 @@ export function useAppointment(id: number) {
 
 /**
  * Hook to create a new appointment
- * Optimized: Optimistic update for instant UI feedback
+ * Note: We do NOT use optimistic updates here because we don't have patient name info
+ * The server returns the complete appointment data with patient name
  */
 export function useCreateAppointment() {
     const queryClient = useQueryClient();
@@ -47,60 +48,23 @@ export function useCreateAppointment() {
             const response = await appointmentApi.create(data);
             return response.data;
         },
-        onMutate: async (newAppointment) => {
-            // Cancel outgoing refetches
-            await queryClient.cancelQueries({
-                queryKey: ['appointments', 'by-date', newAppointment.date, newAppointment.cabinetId],
-            });
-
-            // Snapshot the previous value
-            const previousAppointments = queryClient.getQueryData<AppointmentResponse[]>([
-                'appointments',
-                'by-date',
-                newAppointment.date,
-                newAppointment.cabinetId,
-            ]);
-
-            // Optimistically update with a temporary ID
-            if (previousAppointments) {
-                const optimisticAppointment: AppointmentResponse = {
-                    ...newAppointment,
-                    id: Date.now(), // Temporary ID
-                    prenom: '',
-                    nom: '',
-                    cin: '',
-                    dateNaissance: '',
-                    statutRDV: 'EN_ATTENTE',
-                };
-
-                queryClient.setQueryData<AppointmentResponse[]>(
-                    ['appointments', 'by-date', newAppointment.date, newAppointment.cabinetId],
-                    [...previousAppointments, optimisticAppointment]
-                );
-            }
-
-            return { previousAppointments };
-        },
-        onError: (err, newAppointment, context) => {
-            // Rollback on error
-            const ctx = context as { previousAppointments?: AppointmentResponse[] };
-            if (ctx?.previousAppointments) {
-                queryClient.setQueryData(
-                    ['appointments', 'by-date', newAppointment.date, newAppointment.cabinetId],
-                    ctx.previousAppointments
-                );
-            }
-        },
         onSuccess: (data) => {
-            // Update cache with actual server data
+            // Add the new appointment to cache with complete data from server (includes patient name)
             queryClient.setQueryData<AppointmentResponse[]>(
                 ['appointments', 'by-date', data.date, data.cabinetId],
                 (old) => {
                     if (!old) return [data];
-                    // Replace temporary appointment with real one
-                    return old.map(apt => apt.patientId === data.patientId && apt.Heure_debut === data.Heure_debut ? data : apt);
+                    // Check if appointment already exists (avoid duplicates)
+                    const exists = old.some(apt => apt.id === data.id);
+                    if (exists) {
+                        return old.map(apt => apt.id === data.id ? data : apt);
+                    }
+                    return [...old, data];
                 }
             );
+        },
+        onError: (error) => {
+            console.error('[useCreateAppointment] Error creating appointment:', error);
         },
     });
 }

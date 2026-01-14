@@ -22,6 +22,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { useToast } from "@/hooks/use-toast"
 import { validatePositiveNumber } from "@/lib/validation.utils"
 import type { Notification } from "@/api/notification.api"
+import { billingApi, type ConsultationInvoiceDTO, type ConsultationPaymentMethod } from "@/api/billing.api"
+import { useState as useReactState } from "react"
 
 export default function SecretaireNotificationsPage() {
   // Use backend notifications instead of localStorage
@@ -36,10 +38,12 @@ export default function SecretaireNotificationsPage() {
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null)
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false)
   const [showPrintDialog, setShowPrintDialog] = useState(false)
-  const [generatedInvoice, setGeneratedInvoice] = useState<any>(null)
+  const [generatedInvoice, setGeneratedInvoice] = useState<ConsultationInvoiceDTO | null>(null)
   const [amount, setAmount] = useState("")
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "card">("cash")
+  const [paymentMethod, setPaymentMethod] = useState<ConsultationPaymentMethod>("CASH")
   const [errors, setErrors] = useState<{ amount?: string }>({})
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isPrintingPdf, setIsPrintingPdf] = useState(false)
   const { toast } = useToast()
 
   // pending = status 'pending', processed = status 'read'
@@ -83,8 +87,9 @@ export default function SecretaireNotificationsPage() {
     setSelectedNotification(notification)
     setShowInvoiceDialog(true)
     setAmount("")
-    setPaymentMethod("cash")
+    setPaymentMethod("CASH")
     setErrors({})
+    setIsSubmitting(false)
   }
 
   const validateForm = () => {
@@ -108,33 +113,165 @@ export default function SecretaireNotificationsPage() {
     if (!validateForm() || !selectedNotification) return
 
     const parsed = parseNotificationContent(selectedNotification)
-    
-    const invoice = {
-      id: `INV-${Date.now()}`,
-      date: new Date().toLocaleDateString("fr-FR"),
-      patientName: parsed.patientName,
-      consultationDate: parsed.consultationDate,
-      diagnostic: parsed.diagnostic,
-      amount: Number(amount),
-      paymentMethod: paymentMethod === "cash" ? "Espèces" : "Carte bancaire",
+    const consultationId = parsed.consultationId
+
+    if (!consultationId) {
+      toast({
+        title: "Erreur",
+        description: "ID de consultation manquant dans la notification",
+        variant: "destructive",
+      })
+      return
     }
 
-    setGeneratedInvoice(invoice)
-    
-    // Mark notification as read (processed)
-    await markAsRead(selectedNotification.id)
+    setIsSubmitting(true)
 
-    toast({
-      title: "Facture générée",
-      description: `Facture de ${amount} MAD générée avec succès pour ${parsed.patientName}`,
-    })
+    try {
+      // Step 1: Récupérer la facture existante créée automatiquement par Kafka
+      console.log('[handleSubmitInvoice] Fetching existing invoice for consultation:', consultationId)
+      const existingInvoiceResponse = await billingApi.getInvoiceByConsultation(consultationId)
+      const existingInvoice = existingInvoiceResponse.data
 
-    setShowInvoiceDialog(false)
-    setShowPrintDialog(true)
+      console.log('[handleSubmitInvoice] Existing invoice found:', existingInvoice)
+
+      // Step 2: Mettre à jour le montant saisi par le secrétaire
+      const updatedInvoiceResponse = await billingApi.updateInvoiceAmount(existingInvoice.id, Number(amount))
+      const updatedInvoice = updatedInvoiceResponse.data
+
+      console.log('[handleSubmitInvoice] Amount updated:', updatedInvoice)
+
+      // Step 3: Enregistrer le paiement avec la méthode choisie
+      const paidInvoiceResponse = await billingApi.recordPayment(updatedInvoice.id, paymentMethod)
+      const paidInvoice = paidInvoiceResponse.data
+
+      console.log('[handleSubmitInvoice] Payment recorded:', paidInvoice)
+
+      setGeneratedInvoice(paidInvoice)
+      
+      // Mark notification as read (processed)
+      await markAsRead(selectedNotification.id)
+
+      toast({
+        title: "Facture mise à jour et payée",
+        description: `Facture ${paidInvoice.invoiceNumber} de ${amount} MAD mise à jour avec succès pour ${parsed.patientName}`,
+      })
+
+      setShowInvoiceDialog(false)
+      setShowPrintDialog(true)
+    } catch (error: any) {
+      console.error('[handleSubmitInvoice] Error:', error)
+      
+      // Provide detailed error message
+      let errorMessage = "Impossible de mettre à jour la facture"
+      
+      if (error.response?.status === 404) {
+        errorMessage = "Aucune facture trouvée pour cette consultation. La facture n'a peut-être pas encore été générée automatiquement par le système."
+      } else if (error.response?.status === 500) {
+        errorMessage = "Erreur serveur: Vérifiez que tous les microservices sont démarrés (consultation-service, billing-service)."
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+
+      toast({
+        title: "Erreur",
+        description: errorMessage,
+        variant: "destructive",
+        duration: 8000,
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
-  const handlePrint = () => {
-    window.print()
+  const handlePrint = async () => {
+    if (!generatedInvoice) return
+
+    setIsPrintingPdf(true)
+    try {
+      // Récupérer le PDF depuis le backend
+      const response = await billingApi.getInvoicePdf(generatedInvoice.id)
+      
+      // Create blob from response
+      const blob = new Blob([response.data], { type: 'application/pdf' })
+      const url = window.URL.createObjectURL(blob)
+      
+      // Ouvrir le PDF dans une nouvelle fenêtre et lancer l'impression
+      const printWindow = window.open(url, '_blank')
+      if (printWindow) {
+        printWindow.onload = () => {
+          printWindow.print()
+          // Libérer l'URL après un délai pour permettre l'impression
+          setTimeout(() => {
+            window.URL.revokeObjectURL(url)
+          }, 1000)
+        }
+      }
+
+      toast({
+        title: "Impression lancée",
+        description: `Facture ${generatedInvoice.invoiceNumber} prête à imprimer`,
+      })
+    } catch (error: any) {
+      console.error('[handlePrint] Error:', error)
+      toast({
+        title: "Erreur",
+        description: "Impossible de récupérer le PDF pour l'impression",
+        variant: "destructive",
+      })
+    } finally {
+      setIsPrintingPdf(false)
+    }
+  }
+
+  const handleDownloadPdf = async () => {
+    if (!generatedInvoice) return
+
+    setIsPrintingPdf(true)
+    try {
+      const response = await billingApi.getInvoicePdf(generatedInvoice.id)
+      
+      // Create blob from response
+      const blob = new Blob([response.data], { type: 'application/pdf' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `facture-${generatedInvoice.invoiceNumber}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+
+      toast({
+        title: "Téléchargement réussi",
+        description: `Facture ${generatedInvoice.invoiceNumber} téléchargée`,
+      })
+    } catch (error: any) {
+      console.error('[handleDownloadPdf] Error:', error)
+      toast({
+        title: "Erreur",
+        description: "Impossible de télécharger le PDF",
+        variant: "destructive",
+      })
+    } finally {
+      setIsPrintingPdf(false)
+    }
+  }
+
+  const getPaymentMethodLabel = (method?: ConsultationPaymentMethod): string => {
+    switch (method) {
+      case 'CASH':
+        return 'Espèces'
+      case 'CREDIT_CARD':
+        return 'Carte bancaire'
+      case 'CHECK':
+        return 'Chèque'
+      case 'INSURANCE':
+        return 'Assurance'
+      default:
+        return 'Non spécifié'
+    }
   }
 
   return (
@@ -267,7 +404,7 @@ export default function SecretaireNotificationsPage() {
                       </div>
                       <Button onClick={() => handleGenerateInvoice(notification)} className="gap-2 glow-primary">
                         <Receipt className="w-4 h-4" />
-                        Générer la facture
+                        Finaliser la facture
                       </Button>
                     </div>
                   </div>
@@ -314,9 +451,9 @@ export default function SecretaireNotificationsPage() {
       <Dialog open={showInvoiceDialog} onOpenChange={setShowInvoiceDialog}>
         <DialogContent className="glass-card border-primary/20">
           <DialogHeader>
-            <DialogTitle>Générer une facture</DialogTitle>
+            <DialogTitle>Finaliser la facture</DialogTitle>
             <DialogDescription>
-              Saisissez le montant et choisissez le mode de paiement pour générer la facture
+              La facture a été générée automatiquement. Saisissez le montant final et la méthode de paiement
             </DialogDescription>
           </DialogHeader>
 
@@ -359,17 +496,31 @@ export default function SecretaireNotificationsPage() {
                 <Label>Méthode de paiement</Label>
                 <RadioGroup value={paymentMethod} onValueChange={(value: any) => setPaymentMethod(value)}>
                   <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="cash" id="cash" />
+                    <RadioGroupItem value="CASH" id="cash" />
                     <Label htmlFor="cash" className="flex items-center gap-2 cursor-pointer">
                       <Banknote className="w-4 h-4" />
                       Espèces
                     </Label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="card" id="card" />
+                    <RadioGroupItem value="CREDIT_CARD" id="card" />
                     <Label htmlFor="card" className="flex items-center gap-2 cursor-pointer">
                       <CreditCard className="w-4 h-4" />
                       Carte bancaire
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="CHECK" id="check" />
+                    <Label htmlFor="check" className="flex items-center gap-2 cursor-pointer">
+                      <Receipt className="w-4 h-4" />
+                      Chèque
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="INSURANCE" id="insurance" />
+                    <Label htmlFor="insurance" className="flex items-center gap-2 cursor-pointer">
+                      <FileText className="w-4 h-4" />
+                      Assurance
                     </Label>
                   </div>
                 </RadioGroup>
@@ -378,12 +529,12 @@ export default function SecretaireNotificationsPage() {
           )})()}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowInvoiceDialog(false)}>
+            <Button variant="outline" onClick={() => setShowInvoiceDialog(false)} disabled={isSubmitting}>
               Annuler
             </Button>
-            <Button onClick={handleSubmitInvoice} className="gap-2 glow-primary">
+            <Button onClick={handleSubmitInvoice} disabled={isSubmitting} className="gap-2 glow-primary">
               <Receipt className="w-4 h-4" />
-              Générer la facture
+              {isSubmitting ? "Traitement..." : "Finaliser et payer"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -394,7 +545,7 @@ export default function SecretaireNotificationsPage() {
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-auto glass-card border-primary/20">
           <DialogHeader className="print:hidden">
             <DialogTitle>Facture générée</DialogTitle>
-            <DialogDescription>Vous pouvez maintenant imprimer ou télécharger la facture</DialogDescription>
+            <DialogDescription>Vous pouvez maintenant imprimer ou télécharger la facture (PDF complet généré par le backend)</DialogDescription>
           </DialogHeader>
 
           {generatedInvoice && (
@@ -416,6 +567,10 @@ export default function SecretaireNotificationsPage() {
                       <span className="text-muted-foreground font-medium">Nom:</span>
                       <span className="font-semibold">{generatedInvoice.patientName}</span>
                     </p>
+                    <p className="flex justify-between">
+                      <span className="text-muted-foreground font-medium">ID Patient:</span>
+                      <span className="font-semibold">#{generatedInvoice.patientId}</span>
+                    </p>
                   </div>
                 </div>
                 <div className="space-y-3 text-right">
@@ -423,11 +578,15 @@ export default function SecretaireNotificationsPage() {
                   <div className="space-y-2 text-sm">
                     <p className="flex justify-between">
                       <span className="text-muted-foreground font-medium">N° Facture:</span>
-                      <span className="font-semibold">{generatedInvoice.id}</span>
+                      <span className="font-semibold">{generatedInvoice.invoiceNumber}</span>
                     </p>
                     <p className="flex justify-between">
                       <span className="text-muted-foreground font-medium">Date d'émission:</span>
-                      <span className="font-semibold">{generatedInvoice.date}</span>
+                      <span className="font-semibold">{new Date(generatedInvoice.invoiceDate).toLocaleDateString('fr-FR')}</span>
+                    </p>
+                    <p className="flex justify-between">
+                      <span className="text-muted-foreground font-medium">Statut:</span>
+                      <span className="font-semibold text-green-600">{generatedInvoice.status === 'PAID' ? 'Payée' : generatedInvoice.status}</span>
                     </p>
                   </div>
                 </div>
@@ -440,13 +599,21 @@ export default function SecretaireNotificationsPage() {
                 <h3 className="font-bold text-lg border-b pb-2">Détails de la consultation</h3>
                 <div className="grid gap-3 text-sm">
                   <div className="flex justify-between py-2 border-b">
-                    <span className="text-muted-foreground font-medium">Date de consultation:</span>
-                    <span className="font-semibold">{generatedInvoice.consultationDate}</span>
+                    <span className="text-muted-foreground font-medium">ID Consultation:</span>
+                    <span className="font-semibold">#{generatedInvoice.consultationId}</span>
                   </div>
-                  <div className="flex justify-between py-2 border-b">
-                    <span className="text-muted-foreground font-medium">Diagnostic:</span>
-                    <span className="font-semibold">{generatedInvoice.diagnostic}</span>
-                  </div>
+                  {generatedInvoice.paymentDate && (
+                    <div className="flex justify-between py-2 border-b">
+                      <span className="text-muted-foreground font-medium">Date de paiement:</span>
+                      <span className="font-semibold">{new Date(generatedInvoice.paymentDate).toLocaleDateString('fr-FR', { 
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -457,11 +624,11 @@ export default function SecretaireNotificationsPage() {
                 <h3 className="font-bold text-lg border-b pb-2">Détails du paiement</h3>
                 <div className="flex justify-between text-base py-2">
                   <span className="text-muted-foreground font-medium">Méthode de paiement:</span>
-                  <span className="font-semibold">{generatedInvoice.paymentMethod}</span>
+                  <span className="font-semibold">{getPaymentMethodLabel(generatedInvoice.paymentMethod)}</span>
                 </div>
                 <div className="flex justify-between items-center bg-primary/10 p-6 rounded-lg border-2 border-primary/30">
-                  <span className="font-bold text-xl">TOTAL À PAYER:</span>
-                  <span className="font-bold text-3xl text-primary">{generatedInvoice.amount} MAD</span>
+                  <span className="font-bold text-xl">TOTAL PAYÉ:</span>
+                  <span className="font-bold text-3xl text-primary">{generatedInvoice.amount.toFixed(2)} MAD</span>
                 </div>
               </div>
 
@@ -478,13 +645,17 @@ export default function SecretaireNotificationsPage() {
             </div>
           )}
 
-          <DialogFooter className="print:hidden mt-4">
+          <DialogFooter className="print:hidden mt-4 gap-2">
             <Button variant="outline" onClick={() => setShowPrintDialog(false)}>
               Fermer
             </Button>
-            <Button onClick={handlePrint} className="gap-2 glow-primary">
+            <Button 
+              onClick={handlePrint} 
+              disabled={isPrintingPdf}
+              className="gap-2 glow-primary"
+            >
               <Receipt className="w-4 h-4" />
-              Imprimer la facture
+              {isPrintingPdf ? "Chargement..." : "Imprimer"}
             </Button>
           </DialogFooter>
         </DialogContent>

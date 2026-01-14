@@ -85,4 +85,14 @@ export const notificationApi = {
         apiClient.post<NotificationResponse>('/api/notifications/patient-consultation', null, {
             params,
         }),
+
+    // Request next patient - send notification to secretary
+    requestNextPatient: (params: {
+        doctorId: number;
+        doctorName: string;
+        clinicId: number;
+    }) =>
+        apiClient.post<NotificationResponse>('/api/notifications/request-next-patient', null, {
+            params,
+        }),
 };

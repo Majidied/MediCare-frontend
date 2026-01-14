@@ -119,7 +119,7 @@ export function useNotifications() {
         refetchOnWindowFocus: true,
     })
 
-    // WebSocket connection for real-time notifications (doctors only)
+    // WebSocket connection for real-time notifications (doctors AND secretaries)
     useEffect(() => {
         console.log('[useNotifications] WebSocket setup check - userId:', userId, 'role:', userRole)
         
@@ -128,8 +128,9 @@ export function useNotifications() {
             return
         }
         
-        if (userRole !== 'medecin') {
-            console.log('[useNotifications] Skipping WebSocket - role is not medecin, got:', userRole)
+        // Enable WebSocket for both doctors (medecin) and secretaries (secretaire)
+        if (userRole !== 'medecin' && userRole !== 'secretaire') {
+            console.log('[useNotifications] Skipping WebSocket - role is not medecin or secretaire, got:', userRole)
             return
         }
 
@@ -138,7 +139,7 @@ export function useNotifications() {
             return
         }
 
-        console.log('[useNotifications] Initializing WebSocket for doctor ID:', userId)
+        console.log('[useNotifications] Initializing WebSocket for user ID:', userId, 'role:', userRole)
         const wsClient = getNotificationWebSocket()
 
         // Handle incoming notifications
@@ -187,12 +188,19 @@ export function useNotifications() {
                 description: notification.content,
                 duration: 10000, // 10 seconds
             })
+            
+            // For secretary: also refresh queue and appointments on notification
+            if (userRole === 'secretaire') {
+                // Invalidate queue and appointments to get fresh data
+                queryClient.invalidateQueries({ queryKey: ['queue'] })
+                queryClient.invalidateQueries({ queryKey: ['appointments'] })
+            }
         }
 
-        // Connect to WebSocket
-        wsClient.connect(String(userId), handleNotification)
+        // Connect to WebSocket with role for proper topic subscription
+        wsClient.connect(String(userId), handleNotification, userRole || undefined)
         wsConnectedRef.current = true
-        console.log('[useNotifications] WebSocket connection initiated for doctor ID:', userId)
+        console.log('[useNotifications] WebSocket connection initiated for user ID:', userId, 'role:', userRole)
 
         // Cleanup on unmount
         return () => {

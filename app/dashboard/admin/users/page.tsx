@@ -24,6 +24,7 @@ import { useUsers, useCreateUser, useUpdateUser, useDeactivateUser } from "@/hoo
 import { useActiveClinics } from "@/hooks/use-clinic"
 import type { UserDTO, UserRole, CreateUserRequest } from "@/api/user.api"
 import { validateName, validateEmail, validatePhoneGeneral, validatePassword, PASSWORD_MIN_LENGTH } from "@/lib/validation.utils"
+import { Combobox } from "@/components/ui/combobox"
 
 type FormErrors = {
   firstName?: string
@@ -446,27 +447,20 @@ export default function UsersPage() {
                     <Label htmlFor="clinicId" className="flex items-center gap-1">
                       Clinique <span className="text-destructive">*</span>
                     </Label>
-                    <Select
+                    <Combobox
+                      options={activeClinics.map((clinic) => ({
+                        value: clinic.id!.toString(),
+                        label: clinic.name,
+                        subtitle: clinic.address
+                      }))}
                       value={formData.clinicId?.toString() ?? ""}
                       onValueChange={(value) => handleInputChange('clinicId', value ? Number(value) : null)}
-                    >
-                      <SelectTrigger className={`glass-card border-border/50 ${formErrors.clinicId ? "border-destructive" : ""}`}>
-                        <SelectValue placeholder="Sélectionner une clinique" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {activeClinics.length === 0 ? (
-                          <SelectItem value="" disabled>
-                            Aucune clinique active disponible
-                          </SelectItem>
-                        ) : (
-                          activeClinics.map((clinic) => (
-                            <SelectItem key={clinic.id} value={clinic.id!.toString()}>
-                              {clinic.name}
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
+                      placeholder="Sélectionner une clinique"
+                      searchPlaceholder="Rechercher une clinique..."
+                      emptyText="Aucune clinique trouvée"
+                      className={formErrors.clinicId ? "border-destructive" : ""}
+                      disabled={activeClinics.length === 0}
+                    />
                     {formErrors.clinicId && (
                       <p className="text-sm text-destructive flex items-center gap-1">
                         <AlertCircle className="w-3 h-3" />
@@ -751,27 +745,20 @@ export default function UsersPage() {
                   <Label htmlFor="edit-clinicId" className="flex items-center gap-1">
                     Clinique <span className="text-destructive">*</span>
                   </Label>
-                  <Select
+                  <Combobox
+                    options={activeClinics.map((clinic) => ({
+                      value: clinic.id!.toString(),
+                      label: clinic.name,
+                      subtitle: clinic.address
+                    }))}
                     value={formData.clinicId?.toString() ?? ""}
                     onValueChange={(value) => handleInputChange('clinicId', value ? Number(value) : null)}
-                  >
-                    <SelectTrigger className={`glass-card border-border/50 ${formErrors.clinicId ? "border-destructive" : ""}`}>
-                      <SelectValue placeholder="Sélectionner une clinique" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {activeClinics.length === 0 ? (
-                        <SelectItem value="" disabled>
-                          Aucune clinique active disponible
-                        </SelectItem>
-                      ) : (
-                        activeClinics.map((clinic) => (
-                          <SelectItem key={clinic.id} value={clinic.id!.toString()}>
-                            {clinic.name}
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                    placeholder="Sélectionner une clinique"
+                    searchPlaceholder="Rechercher une clinique..."
+                    emptyText="Aucune clinique trouvée"
+                    className={formErrors.clinicId ? "border-destructive" : ""}
+                    disabled={activeClinics.length === 0}
+                  />
                   {formErrors.clinicId && (
                     <p className="text-sm text-destructive flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" />

@@ -17,6 +17,7 @@ import { rdvApi, type StatutRDV } from "@/api/rdv.api"
 import { medicationApi, type MedicationDTO } from "@/api/medication.api"
 import { prescriptionApi, type PrescriptionDTO, type PrescriptionLineDTO } from "@/api/prescription.api"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Combobox } from "@/components/ui/combobox"
 import {
   User,
   Calendar,
@@ -1098,25 +1099,21 @@ export default function PatientDetailsPage() {
                                 className="flex gap-2 items-start p-3 rounded-lg bg-background/50 border border-border/50"
                               >
                                 <div className="flex-1 space-y-2">
-                                  <Select
+                                  <Combobox
+                                    options={medications.map((medication) => ({
+                                      value: String(medication.id),
+                                      label: medication.commercialName,
+                                      subtitle: `${medication.dosage} • ${medication.form} • ${medication.type}`
+                                    }))}
                                     value={med.medicationId === "" ? "" : String(med.medicationId)}
                                     onValueChange={(value) => updateMedication(index, "medicationId", Number(value))}
-                                  >
-                                    <SelectTrigger className="bg-background/50">
-                                      <SelectValue placeholder="Sélectionner un médicament" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {medicationsLoading && <SelectItem value="" disabled>Chargement...</SelectItem>}
-                                      {!medicationsLoading && medications.length === 0 && (
-                                        <SelectItem value="" disabled>Aucun médicament disponible</SelectItem>
-                                      )}
-                                      {medications.map((medication) => (
-                                        <SelectItem key={medication.id} value={String(medication.id)}>
-                                          {medication.commercialName} - {medication.dosage} ({medication.form})
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                    placeholder="Sélectionner un médicament"
+                                    searchPlaceholder="Rechercher un médicament (nom, dosage, forme)..."
+                                    emptyText={medicationsLoading ? "Chargement..." : "Aucun médicament trouvé"}
+                                    className="bg-background/50"
+                                    disabled={medicationsLoading || medications.length === 0}
+                                    allowClear={true}
+                                  />
                                   <Input
                                     placeholder="Posologie (ex: 1 comprimé 3 fois par jour)"
                                     value={med.posologie}

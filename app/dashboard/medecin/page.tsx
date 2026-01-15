@@ -35,6 +35,7 @@ export default function MedecinDashboard() {
   const medecinIdFromUser = Number(user?.id)
   const medecinIdEnv = Number(process.env.NEXT_PUBLIC_MEDECIN_ID ?? process.env.NEXT_PUBLIC_DEFAULT_MEDECIN_ID ?? 0)
   const medecinId = Number.isFinite(medecinIdFromUser) && medecinIdFromUser > 0 ? medecinIdFromUser : medecinIdEnv || 1
+  console.log("[MedecinDashboard] Medecin ID used:", medecinId)
   const recentLimit = 5
 
   // Note: WebSocket connection is now handled globally in NotificationsContext
@@ -91,6 +92,7 @@ export default function MedecinDashboard() {
     queryKey: ["consultations", "weekly-stats", medecinId, cabinetId],
     queryFn: async () => {
       const { data } = await consultationApi.getMedecinWeeklyStats(medecinId, { cabinetId })
+      console.log("Weekly stats data:", data)
       return data
     },
     enabled: medecinId > 0,

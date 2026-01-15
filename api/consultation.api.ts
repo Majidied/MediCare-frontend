@@ -61,9 +61,14 @@ export const consultationApi = {
   getByPatient: (patientId: number) =>
     apiClient.get<ConsultationSummaryDTO[]>(`/api/consultations/patients/${patientId}/historique`),
   getRecentByMedecin: (medecinId: number, limit = 5) =>
-    apiClient.get<ConsultationSummaryDTO[]>(`/api/consultations/medecins/${medecinId}/recent`, {
-      params: { limit },
-    }),
+    apiClient
+      .get<ConsultationSummaryDTO[]>(`/api/consultations/medecins/${medecinId}/recent`, {
+        params: { limit },
+      })
+      .then((res) => {
+        console.log("[consultationApi.getRecentByMedecin] medecinId=", medecinId, "limit=", limit, "data=", res.data)
+        return res
+      }),
   getByMedecin: (
     medecinId: number,
     params?: {
@@ -78,7 +83,13 @@ export const consultationApi = {
   getMedecinWeeklyStats: (
     medecinId: number,
     params?: { cabinetId?: number; startDate?: string; endDate?: string },
-  ) => apiClient.get<MedecinWeeklyStatsDTO>(`/api/consultations/stats/medecin/${medecinId}/weekly`, { params }),
+  ) =>
+    apiClient
+      .get<MedecinWeeklyStatsDTO>(`/api/consultations/stats/medecin/${medecinId}/weekly`, { params })
+      .then((res) => {
+        console.log("[consultationApi.getMedecinWeeklyStats] medecinId=", medecinId, "params=", params, "data=", res.data)
+        return res
+      }),
   update: (consultationId: number, dto: Partial<ConsultationDTO>) =>
     apiClient.put<ConsultationDTO>(`/api/consultations/${consultationId}`, dto).then((res) => {
       console.log("[consultationApi.update] payload:", dto)

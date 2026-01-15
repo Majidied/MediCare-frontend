@@ -13,7 +13,8 @@ import { prescriptionApi } from "@/api/prescription.api"
 import { useAuth } from "@/lib/auth-context"
 import { useCurrentUser } from "@/hooks/use-user"
 import { useQuery } from "@tanstack/react-query"
-import { AlertCircle, CheckCircle, Clock, Loader2, Search, Stethoscope, Users, Calendar, FileText, Building2 } from "lucide-react"
+import { AlertCircle, CheckCircle, Clock, Loader2, Search, Stethoscope, Users, Calendar, FileText, Building2, Printer, Pill } from "lucide-react"
+import { type PrescriptionDTO } from "@/api/prescription.api"
 import { useRouter } from "next/navigation"
 import { useNotifications } from "@/hooks/use-notifications"
 
@@ -167,6 +168,428 @@ export default function MedecinDashboard() {
       trend: "up",
     },
   ]
+  const handlePrintOrdonnance = (prescription: PrescriptionDTO) => {
+    const printWindow = window.open("", "PRINT", "height=1000,width=800")
+    if (!printWindow) {
+      alert("Veuillez autoriser les fenêtres surgissantes pour lancer l'impression.")
+      return
+    }
+
+    const doctorName = userDetails?.name || user?.name || "Médecin"
+    const clinicName = clinicData?.name || userDetails?.clinicName || "Cabinet Médical"
+    const clinicAddress = clinicData?.address || "Adresse du cabinet"
+    const clinicPhone = clinicData?.phone || ""
+    const clinicEmail = clinicData?.email || ""
+    const now = new Date()
+    const currentDate = now.toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })
+    const currentTime = now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+    const prescriptionDate = new Date(prescription.prescriptionDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })
+
+    const linesHtml = prescription.lines
+      .map((line, index) => {
+        const medicationName = line.medicationName || "Médicament"
+        const duration = line.durationDays ? `${line.durationDays} jours` : "Selon prescription"
+        const comment = line.comment
+          ? `<div class="med-comment">📝 ${line.comment}</div>`
+          : ""
+        const colors = ["#3b82f6", "#8b5cf6", "#06b6d4", "#10b981", "#f59e0b", "#ef4444"]
+        const color = colors[index % colors.length]
+        return `
+          <div class="medication-card" style="border-left-color: ${color};">
+            <div class="med-number" style="background: ${color};">${index + 1}</div>
+            <div class="med-content">
+              <div class="med-name">${medicationName}</div>
+              <div class="med-dosage">
+                <span class="dosage-icon">💊</span>
+                ${line.dosage}
+              </div>
+              <div class="med-duration">
+                <span class="duration-icon">📅</span>
+                Durée: ${duration}
+              </div>
+              ${comment}
+            </div>
+          </div>
+        `
+      })
+      .join("")
+
+    const signatureHtml = prescription.digitalSignature
+      ? `
+        <div class="signature-section">
+          <div class="signature-label">✍️ Signature du médecin</div>
+          <img src="${prescription.digitalSignature}" alt="Signature" class="signature-img" />
+        </div>
+      `
+      : `
+        <div class="signature-placeholder">
+          <div class="signature-line"></div>
+          <div class="signature-label-empty">Signature du médecin</div>
+        </div>
+      `
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html lang="fr">
+        <head>
+          <meta charset="UTF-8">
+          <title>Ordonnance Médicale - ${doctorName}</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            
+            body {
+              font-family: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+              color: #1e293b;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              min-height: 100vh;
+              padding: 30px;
+            }
+            
+            .prescription-container {
+              max-width: 700px;
+              margin: 0 auto;
+              background: #fff;
+              border-radius: 24px;
+              box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+              overflow: hidden;
+            }
+            
+            .header {
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+              color: #fff;
+              padding: 32px;
+              position: relative;
+              overflow: hidden;
+            }
+            
+            .header::before {
+              content: '';
+              position: absolute;
+              top: -50%;
+              right: -50%;
+              width: 100%;
+              height: 200%;
+              background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            }
+            
+            .header-content {
+              position: relative;
+              z-index: 1;
+            }
+            
+            .header-top {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+              margin-bottom: 20px;
+            }
+            
+            .doctor-info h1 {
+              font-size: 28px;
+              font-weight: 700;
+              margin-bottom: 4px;
+              text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            
+            .clinic-name {
+              font-size: 16px;
+              opacity: 0.95;
+              font-weight: 500;
+            }
+            
+            .clinic-details {
+              margin-top: 8px;
+              font-size: 13px;
+              opacity: 0.85;
+            }
+            
+            .clinic-details div {
+              margin-top: 2px;
+            }
+            
+            .ordonnance-badge {
+              background: rgba(255,255,255,0.2);
+              backdrop-filter: blur(10px);
+              padding: 16px 24px;
+              border-radius: 16px;
+              text-align: center;
+              border: 1px solid rgba(255,255,255,0.3);
+            }
+            
+            .ordonnance-label {
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 2px;
+              opacity: 0.9;
+            }
+            
+            .ordonnance-number {
+              font-size: 24px;
+              font-weight: 700;
+              margin-top: 4px;
+            }
+            
+            .date-time-bar {
+              display: flex;
+              justify-content: space-between;
+              background: rgba(255,255,255,0.15);
+              padding: 12px 20px;
+              border-radius: 12px;
+              font-size: 13px;
+            }
+            
+            .date-time-item {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+            }
+            
+            .body-content {
+              padding: 32px;
+            }
+            
+            .section-title {
+              display: flex;
+              align-items: center;
+              gap: 12px;
+              font-size: 18px;
+              font-weight: 600;
+              color: #334155;
+              margin-bottom: 20px;
+              padding-bottom: 12px;
+              border-bottom: 2px solid #e2e8f0;
+            }
+            
+            .section-icon {
+              width: 36px;
+              height: 36px;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              border-radius: 10px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 18px;
+            }
+            
+            .medications-list {
+              display: flex;
+              flex-direction: column;
+              gap: 16px;
+            }
+            
+            .medication-card {
+              display: flex;
+              gap: 16px;
+              padding: 20px;
+              background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+              border-radius: 16px;
+              border-left: 4px solid #3b82f6;
+              transition: transform 0.2s, box-shadow 0.2s;
+            }
+            
+            .med-number {
+              width: 32px;
+              height: 32px;
+              border-radius: 50%;
+              background: #3b82f6;
+              color: #fff;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-weight: 600;
+              font-size: 14px;
+              flex-shrink: 0;
+            }
+            
+            .med-content {
+              flex: 1;
+            }
+            
+            .med-name {
+              font-size: 16px;
+              font-weight: 600;
+              color: #1e293b;
+              margin-bottom: 8px;
+            }
+            
+            .med-dosage, .med-duration {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              font-size: 14px;
+              color: #475569;
+              margin-bottom: 4px;
+            }
+            
+            .dosage-icon, .duration-icon {
+              font-size: 14px;
+            }
+            
+            .med-comment {
+              margin-top: 8px;
+              padding: 10px 14px;
+              background: #fff;
+              border-radius: 8px;
+              font-size: 13px;
+              color: #64748b;
+              font-style: italic;
+              border: 1px dashed #cbd5e1;
+            }
+            
+            .signature-section {
+              margin-top: 32px;
+              padding: 24px;
+              background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+              border-radius: 16px;
+              text-align: center;
+            }
+            
+            .signature-label {
+              font-size: 14px;
+              color: #7c3aed;
+              font-weight: 500;
+              margin-bottom: 16px;
+            }
+            
+            .signature-img {
+              max-width: 220px;
+              height: auto;
+              border: 2px solid #e9d5ff;
+              padding: 12px;
+              border-radius: 12px;
+              background: #fff;
+            }
+            
+            .signature-placeholder {
+              margin-top: 32px;
+              padding: 24px;
+              text-align: center;
+            }
+            
+            .signature-line {
+              width: 200px;
+              height: 2px;
+              background: linear-gradient(90deg, transparent, #cbd5e1, transparent);
+              margin: 0 auto 12px;
+            }
+            
+            .signature-label-empty {
+              font-size: 13px;
+              color: #94a3b8;
+            }
+            
+            .footer {
+              background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+              padding: 20px 32px;
+              text-align: center;
+              border-top: 1px solid #e2e8f0;
+            }
+            
+            .footer-text {
+              font-size: 12px;
+              color: #64748b;
+            }
+            
+            .footer-brand {
+              margin-top: 8px;
+              font-size: 11px;
+              color: #94a3b8;
+            }
+            
+            .watermark {
+              position: absolute;
+              bottom: 20px;
+              right: 20px;
+              font-size: 80px;
+              opacity: 0.03;
+              font-weight: 700;
+              pointer-events: none;
+            }
+            
+            @media print {
+              body {
+                background: #fff;
+                padding: 0;
+              }
+              .prescription-container {
+                box-shadow: none;
+                border-radius: 0;
+              }
+              .header {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              .medication-card {
+                break-inside: avoid;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="prescription-container">
+            <div class="header">
+              <div class="header-content">
+                <div class="header-top">
+                  <div class="doctor-info">
+                    <h1>🩺 Dr. ${doctorName}</h1>
+                    <div class="clinic-name">${clinicName}</div>
+                    <div class="clinic-details">
+                      ${clinicAddress ? `<div>📍 ${clinicAddress}</div>` : ""}
+                      ${clinicPhone ? `<div>📞 ${clinicPhone}</div>` : ""}
+                      ${clinicEmail ? `<div>✉️ ${clinicEmail}</div>` : ""}
+                    </div>
+                  </div>
+                  <div class="ordonnance-badge">
+                    <div class="ordonnance-label">Ordonnance</div>
+                    <div class="ordonnance-number">N° ${prescription.id}</div>
+                  </div>
+                </div>
+                <div class="date-time-bar">
+                  <div class="date-time-item">
+                    <span>📅</span>
+                    <span>Prescription: ${prescriptionDate}</span>
+                  </div>
+                  <div class="date-time-item">
+                    <span>🕐</span>
+                    <span>Imprimé: ${currentDate} à ${currentTime}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="watermark">℞</div>
+            </div>
+            
+            <div class="body-content">
+              <div class="section-title">
+                <div class="section-icon">💊</div>
+                <span>Prescription médicale</span>
+              </div>
+              
+              <div class="medications-list">
+                ${linesHtml}
+              </div>
+              
+              ${signatureHtml}
+            </div>
+            
+            <div class="footer">
+              <div class="footer-text">
+                Ce document est une ordonnance médicale officielle. Conservez-le précieusement.
+              </div>
+              <div class="footer-brand">
+                ${clinicName} • Généré automatiquement le ${currentDate}
+              </div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `)
+
+    printWindow.document.close()
+    printWindow.focus()
+    setTimeout(() => printWindow.print(), 400)
+  }
+
   const formatTime = (time?: string) => (time ? time.slice(0, 5) : "--:--")
   const formatDateTime = (iso?: string) => {
     if (!iso) return "Date inconnue"
@@ -395,6 +818,84 @@ export default function MedecinDashboard() {
             </Button>
           </Card>
         </div>
+
+        {/* Ordonnances de la semaine */}
+        <Card className="glass-card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Pill className="w-5 h-5 text-primary" />
+              <h2 className="text-lg font-semibold">Ordonnances de la Semaine</h2>
+            </div>
+            <Badge variant="outline">{weeklyPrescriptionsCount} ordonnance(s)</Badge>
+          </div>
+
+          {prescriptionsLoading && (
+            <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-background/50 p-4 text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Chargement des ordonnances...</span>
+            </div>
+          )}
+
+          {prescriptionsError && (
+            <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-destructive">
+              <AlertCircle className="w-4 h-4" />
+              <span>Impossible de charger les ordonnances</span>
+            </div>
+          )}
+
+          {!prescriptionsLoading && !prescriptionsError && weeklyPrescriptions.length === 0 && (
+            <div className="rounded-lg border border-dashed border-border/60 bg-muted/10 p-4 text-sm text-muted-foreground">
+              Aucune ordonnance cette semaine.
+            </div>
+          )}
+
+          {!prescriptionsLoading && !prescriptionsError && weeklyPrescriptions.length > 0 && (
+            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
+              {weeklyPrescriptions.slice(0, 10).map((prescription) => (
+                <div
+                  key={prescription.id}
+                  className="flex items-center justify-between p-4 rounded-lg bg-background/50 border border-border/50 hover:border-primary/30 transition-all"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant="outline" className="text-xs">
+                        #{prescription.id}
+                      </Badge>
+                      <span className="text-sm text-muted-foreground">
+                        {new Date(prescription.prescriptionDate).toLocaleDateString("fr-FR", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </span>
+                    </div>
+                    <p className="text-sm">
+                      {prescription.lines.length} médicament(s)
+                      {prescription.lines.slice(0, 2).map((l, i) => (
+                        <span key={i} className="text-muted-foreground">
+                          {i === 0 ? " : " : ", "}
+                          {l.medicationName || "Médicament"}
+                        </span>
+                      ))}
+                      {prescription.lines.length > 2 && (
+                        <span className="text-muted-foreground">...</span>
+                      )}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-2 border-primary/20 hover:bg-primary/10"
+                    onClick={() => handlePrintOrdonnance(prescription)}
+                  >
+                    <Printer className="w-4 h-4" />
+                    Imprimer
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
 
         <Card className="glass-card p-6">
           <div className="flex items-center justify-between mb-4">

@@ -21,7 +21,7 @@ const KEYCLOAK_CLIENT_ID =
     : 'cabinetx-client'
 
 export type User = {
-  id: string
+  id: string // Keycloak UUID (sub claim) - NOT the database user ID. Use useCurrentUser() to get the database ID.
   email: string
   name: string
   role: "admin" | "medecin" | "secretaire"

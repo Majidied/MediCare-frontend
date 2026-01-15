@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,8 +10,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Badge } from "@/components/ui/badge"
 import { Plus, Search, Edit, Trash2, Pill, AlertCircle, Loader2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { medicationApi, type MedicationDTO } from "@/api/medication.api"
+import { type MedicationDTO } from "@/api/medication.api"
 import { validateRequired, validateDosage, sanitizeInput } from "@/lib/validation.utils"
+import { useMedications, useCreateMedication, useUpdateMedication, useDeleteMedication } from "@/hooks/use-medication"
 
 // Form component moved outside to prevent recreation on every render
 const MedicationForm = ({
@@ -105,13 +106,17 @@ const MedicationForm = ({
 )
 
 export default function MedicationsPage() {
-  const [medications, setMedications] = useState<MedicationDTO[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [editingMedication, setEditingMedication] = useState<MedicationDTO | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
   const { toast } = useToast()
+
+  // Use React Query hooks
+  const { data: medications = [], isLoading } = useMedications()
+  const createMutation = useCreateMedication()
+  const updateMutation = useUpdateMedication()
+  const deleteMutation = useDeleteMedication()
 
   // Form state
   const [formData, setFormData] = useState({
@@ -123,27 +128,6 @@ export default function MedicationsPage() {
 
   // Error state
   const [errors, setErrors] = useState<Record<string, string>>({})
-
-  // Fetch medications on mount
-  useEffect(() => {
-    fetchMedications()
-  }, [])
-
-  const fetchMedications = async () => {
-    try {
-      setIsLoading(true)
-      const response = await medicationApi.getAll()
-      setMedications(response.data)
-    } catch (error) {
-      toast({
-        title: "Erreur",
-        description: "Impossible de charger les médicaments",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }
 
   // Validation function
   const validateForm = () => {
@@ -196,28 +180,31 @@ export default function MedicationsPage() {
   const handleCreate = async () => {
     if (!validateForm()) return
 
-    try {
-      const response = await medicationApi.create({
+    createMutation.mutate(
+      {
         commercialName: formData.commercialName.trim(),
         dci: formData.dci.trim(),
         dosage: formData.dosage.trim(),
         form: formData.form.trim(),
-      })
-
-      setMedications([...medications, response.data])
-      setIsCreateOpen(false)
-      resetForm()
-      toast({
-        title: "Médicament créé",
-        description: `${response.data.commercialName} a été ajouté avec succès`,
-      })
-    } catch (error) {
-      toast({
-        title: "Erreur",
-        description: "Impossible de créer le médicament",
-        variant: "destructive",
-      })
-    }
+      },
+      {
+        onSuccess: (response) => {
+          setIsCreateOpen(false)
+          resetForm()
+          toast({
+            title: "Médicament créé",
+            description: `${response.data.commercialName} a été ajouté avec succès`,
+          })
+        },
+        onError: () => {
+          toast({
+            title: "Erreur",
+            description: "Impossible de créer le médicament",
+            variant: "destructive",
+          })
+        },
+      }
+    )
   }
 
   // Edit medication
@@ -237,54 +224,56 @@ export default function MedicationsPage() {
   const handleUpdate = async () => {
     if (!validateForm() || !editingMedication || !editingMedication.id) return
 
-    try {
-      const response = await medicationApi.update(editingMedication.id, {
-        commercialName: formData.commercialName.trim(),
-        dci: formData.dci.trim(),
-        dosage: formData.dosage.trim(),
-        form: formData.form.trim(),
-      })
-
-      setMedications(
-        medications.map((med) =>
-          med.id === editingMedication.id ? response.data : med,
-        ),
-      )
-
-      setIsEditOpen(false)
-      resetForm()
-      toast({
-        title: "Médicament modifié",
-        description: "Les informations ont été mises à jour avec succès",
-      })
-    } catch (error) {
-      toast({
-        title: "Erreur",
-        description: "Impossible de modifier le médicament",
-        variant: "destructive",
-      })
-    }
+    updateMutation.mutate(
+      {
+        id: editingMedication.id,
+        data: {
+          commercialName: formData.commercialName.trim(),
+          dci: formData.dci.trim(),
+          dosage: formData.dosage.trim(),
+          form: formData.form.trim(),
+        },
+      },
+      {
+        onSuccess: () => {
+          setIsEditOpen(false)
+          resetForm()
+          toast({
+            title: "Médicament modifié",
+            description: "Les informations ont été mises à jour avec succès",
+          })
+        },
+        onError: () => {
+          toast({
+            title: "Erreur",
+            description: "Impossible de modifier le médicament",
+            variant: "destructive",
+          })
+        },
+      }
+    )
   }
 
   // Delete medication
   const handleDelete = async (id: number) => {
     const medication = medications.find((m) => m.id === id)
     
-    try {
-      await medicationApi.delete(id)
-      setMedications(medications.filter((m) => m.id !== id))
-      toast({
-        title: "Médicament supprimé",
-        description: `${medication?.commercialName} a été supprimé`,
-        variant: "destructive",
-      })
-    } catch (error) {
-      toast({
-        title: "Erreur",
-        description: "Impossible de supprimer le médicament",
-        variant: "destructive",
-      })
-    }
+    deleteMutation.mutate(id, {
+      onSuccess: () => {
+        toast({
+          title: "Médicament supprimé",
+          description: `${medication?.commercialName} a été supprimé`,
+          variant: "destructive",
+        })
+      },
+      onError: () => {
+        toast({
+          title: "Erreur",
+          description: "Impossible de supprimer le médicament",
+          variant: "destructive",
+        })
+      },
+    })
   }
 
   // Filter medications

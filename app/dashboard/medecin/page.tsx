@@ -32,10 +32,8 @@ export default function MedecinDashboard() {
   console.log("[MedecinDashboard] User details from API:", userDetails)
   console.log("[MedecinDashboard] Cabinet ID:", cabinetId)
 
-  const medecinIdFromUser = Number(user?.id)
-  const medecinIdEnv = Number(process.env.NEXT_PUBLIC_MEDECIN_ID ?? process.env.NEXT_PUBLIC_DEFAULT_MEDECIN_ID ?? 0)
-  const medecinId = Number.isFinite(medecinIdFromUser) && medecinIdFromUser > 0 ? medecinIdFromUser : medecinIdEnv || 1
-  console.log("[MedecinDashboard] Medecin ID used:", medecinId)
+  // Use the numeric database ID from userDetails, not the Keycloak UUID
+  const medecinId = userDetails?.id ?? 0
   const recentLimit = 5
 
   // Note: WebSocket connection is now handled globally in NotificationsContext

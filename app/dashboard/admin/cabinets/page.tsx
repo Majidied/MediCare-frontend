@@ -26,9 +26,9 @@ import {
   PowerOff,
   Stethoscope,
 } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useToast } from "@/hooks/use-toast"
-import { clinicApi, type ClinicDTO, type ClinicStatus } from "@/api/clinic.api"
+import { type ClinicDTO, type ClinicStatus } from "@/api/clinic.api"
 import {
   validateRequired,
   validatePhoneMorocco,
@@ -36,17 +36,32 @@ import {
   validateURL,
   validateFutureDate,
 } from "@/lib/validation.utils"
+import { useClinics, useCreateClinic, useUpdateClinic } from "@/hooks/use-clinic"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { clinicApi } from "@/api/clinic.api"
 
 export default function CabinetsPage() {
-  const [clinics, setClinics] = useState<ClinicDTO[]>([])
   const [selectedClinic, setSelectedClinic] = useState<ClinicDTO | null>(null)
   const [showDialog, setShowDialog] = useState(false)
   const [showDetailsDialog, setShowDetailsDialog] = useState(false)
   const [dialogMode, setDialogMode] = useState<"create" | "edit">("create")
   const [searchQuery, setSearchQuery] = useState("")
   const [viewMode, setViewMode] = useState<"map" | "grid">("map")
-  const [isLoading, setIsLoading] = useState(true)
   const { toast } = useToast()
+  const queryClient = useQueryClient()
+
+  // Use React Query hooks
+  const { data: clinics = [], isLoading } = useClinics()
+  const createMutation = useCreateClinic()
+  const updateMutation = useUpdateClinic()
+  const activateMutation = useMutation({
+    mutationFn: (id: number) => clinicApi.activate(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clinics'] }),
+  })
+  const deactivateMutation = useMutation({
+    mutationFn: (id: number) => clinicApi.deactivate(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clinics'] }),
+  })
 
   const [formData, setFormData] = useState({
     name: "",
@@ -59,27 +74,6 @@ export default function CabinetsPage() {
   })
 
   const [errors, setErrors] = useState<Record<string, string>>({})
-
-  // Fetch clinics on mount
-  useEffect(() => {
-    fetchClinics()
-  }, [])
-
-  const fetchClinics = async () => {
-    try {
-      setIsLoading(true)
-      const response = await clinicApi.getAll()
-      setClinics(response.data)
-    } catch (error) {
-      toast({
-        title: "Erreur",
-        description: "Impossible de charger les cabinets",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }
 
   const filteredClinics = clinics.filter(
     (clinic) =>
@@ -155,82 +149,78 @@ export default function CabinetsPage() {
   }
 
   const handleSave = async () => {
-    console.log("handleSave called, dialogMode:", dialogMode)
     if (!validateForm()) {
-      console.log("Validation failed, stopping")
       return
     }
-    console.log("Validation passed, proceeding...")
-    console.log("selectedClinic:", selectedClinic)
-    console.log("selectedClinic.id:", selectedClinic?.id)
 
-    try {
-      if (dialogMode === "create") {
-        const createData: any = {
-          name: formData.name.trim(),
-          specialty: formData.specialty.trim(),
-          phone: formData.phone.trim(),
-          address: formData.address.trim(),
-          status: formData.status,
-          serviceEndDate: formData.serviceEndDate,
-        }
-        if (formData.logoUrl.trim()) {
-          createData.logoUrl = formData.logoUrl.trim()
-        }
-        console.log("Creating clinic with data:", createData)
-        const response = await clinicApi.create(createData)
-        setClinics([...clinics, response.data])
-        toast({ title: "Succès", description: "Cabinet créé avec succès" })
-      } else if (selectedClinic?.id) {
-        const updateData: any = {
-          name: formData.name.trim(),
-          specialty: formData.specialty.trim(),
-          phone: formData.phone.trim(),
-          address: formData.address.trim(),
-          status: formData.status,
-          serviceEndDate: formData.serviceEndDate,
-        }
-        if (formData.logoUrl.trim()) {
-          updateData.logoUrl = formData.logoUrl.trim()
-        }
-        console.log("Updating clinic ID:", selectedClinic.id, "with data:", updateData)
-        const response = await clinicApi.update(selectedClinic.id, updateData)
-        console.log("Update response:", response.data)
-        setClinics(clinics.map((c) => (c.id === selectedClinic.id ? response.data : c)))
-        toast({ title: "Succès", description: "Cabinet mis à jour avec succès" })
-      }
-      setShowDialog(false)
-    } catch (error: any) {
-      console.error("Error saving clinic:", error)
-      console.error("Error response:", error?.response?.data)
-      toast({
-        title: "Erreur",
-        description: error?.response?.data?.message || (dialogMode === "create" ? "Impossible de créer le cabinet" : "Impossible de mettre à jour le cabinet"),
-        variant: "destructive",
+    const preparedData: any = {
+      name: formData.name.trim(),
+      specialty: formData.specialty.trim(),
+      phone: formData.phone.trim(),
+      address: formData.address.trim(),
+      status: formData.status,
+      serviceEndDate: formData.serviceEndDate,
+    }
+    if (formData.logoUrl.trim()) {
+      preparedData.logoUrl = formData.logoUrl.trim()
+    }
+
+    if (dialogMode === "create") {
+      createMutation.mutate(preparedData, {
+        onSuccess: () => {
+          toast({ title: "Succès", description: "Cabinet créé avec succès" })
+          setShowDialog(false)
+        },
+        onError: (error: any) => {
+          toast({
+            title: "Erreur",
+            description: error?.response?.data?.message || "Impossible de créer le cabinet",
+            variant: "destructive",
+          })
+        },
       })
+    } else if (selectedClinic?.id) {
+      updateMutation.mutate(
+        { id: selectedClinic.id, data: preparedData },
+        {
+          onSuccess: () => {
+            toast({ title: "Succès", description: "Cabinet mis à jour avec succès" })
+            setShowDialog(false)
+          },
+          onError: (error: any) => {
+            toast({
+              title: "Erreur",
+              description: error?.response?.data?.message || "Impossible de mettre à jour le cabinet",
+              variant: "destructive",
+            })
+          },
+        }
+      )
     }
   }
 
   const handleActivate = async (clinic: ClinicDTO) => {
     if (!clinic.id) return
-    try {
-      const response = await clinicApi.activate(clinic.id)
-      setClinics(clinics.map((c) => (c.id === clinic.id ? response.data : c)))
-      toast({ title: "Succès", description: `${clinic.name} a été activé` })
-    } catch (error) {
-      toast({ title: "Erreur", description: "Impossible d'activer le cabinet", variant: "destructive" })
-    }
+    activateMutation.mutate(clinic.id, {
+      onSuccess: () => {
+        toast({ title: "Succès", description: `${clinic.name} a été activé` })
+      },
+      onError: () => {
+        toast({ title: "Erreur", description: "Impossible d'activer le cabinet", variant: "destructive" })
+      },
+    })
   }
 
   const handleDeactivate = async (clinic: ClinicDTO) => {
     if (!clinic.id) return
-    try {
-      const response = await clinicApi.deactivate(clinic.id)
-      setClinics(clinics.map((c) => (c.id === clinic.id ? response.data : c)))
-      toast({ title: "Succès", description: `${clinic.name} a été désactivé` })
-    } catch (error) {
-      toast({ title: "Erreur", description: "Impossible de désactiver le cabinet", variant: "destructive" })
-    }
+    deactivateMutation.mutate(clinic.id, {
+      onSuccess: () => {
+        toast({ title: "Succès", description: `${clinic.name} a été désactivé` })
+      },
+      onError: () => {
+        toast({ title: "Erreur", description: "Impossible de désactiver le cabinet", variant: "destructive" })
+      },
+    })
   }
 
   const handleViewDetails = (clinic: ClinicDTO) => {

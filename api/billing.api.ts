@@ -73,6 +73,32 @@ export interface CancelSubscriptionRequest {
   cancelAtPeriodEnd?: boolean
 }
 
+// Consultation Invoice types (different from subscription billing)
+export type ConsultationInvoiceStatus = 'PENDING_PAYMENT' | 'PAID' | 'CANCELLED'
+export type ConsultationPaymentMethod = 'CASH' | 'CREDIT_CARD' | 'INSURANCE' | 'CHECK'
+
+export interface ConsultationInvoiceDTO {
+  id: number
+  invoiceNumber: string
+  patientId: number
+  consultationId: number
+  invoiceDate: string // LocalDateTime ISO string
+  amount: number
+  status: ConsultationInvoiceStatus
+  paymentMethod?: ConsultationPaymentMethod
+  paymentDate?: string // LocalDateTime ISO string
+  patientName: string
+}
+
+export interface GenerateInvoiceRequest {
+  consultationId: number
+  amount: number
+}
+
+export interface RecordPaymentRequest {
+  paymentMethod: ConsultationPaymentMethod
+}
+
 export const billingApi = {
   // NOTE: backend billing endpoints are served under /api/payment/billing
   getPlans: () => apiClient.get<BillingPlanDTO[]>(`/api/payment/billing/plans`),
@@ -102,4 +128,28 @@ export const billingApi = {
   getCustomer: (cabinetId: number) => apiClient.get(`/api/payment/billing/customer`, { params: { cabinetId } }),
   cancelSubscription: (payload: CancelSubscriptionRequest) =>
     apiClient.post(`/api/payment/billing/subscription/cancel`, payload),
+
+  // Consultation Invoice APIs
+  generateInvoice: (consultationId: number, amount: number) =>
+    apiClient.post<ConsultationInvoiceDTO>(`/api/billing/invoices`, null, {
+      params: { consultationId, amount }
+    }),
+  getInvoiceByConsultation: (consultationId: number) =>
+    apiClient.get<ConsultationInvoiceDTO>(`/api/billing/consultations/${consultationId}/invoice`),
+  updateInvoiceAmount: (invoiceId: number, amount: number) =>
+    apiClient.put<ConsultationInvoiceDTO>(`/api/billing/invoices/${invoiceId}/amount`, null, {
+      params: { amount }
+    }),
+  recordPayment: (invoiceId: number, paymentMethod: ConsultationPaymentMethod) =>
+    apiClient.put<ConsultationInvoiceDTO>(`/api/billing/invoices/${invoiceId}/payment`, null, {
+      params: { paymentMethod }
+    }),
+  getInvoiceById: (invoiceId: number) =>
+    apiClient.get<ConsultationInvoiceDTO>(`/api/billing/invoices/${invoiceId}`),
+  getInvoicesByPatient: (patientId: number) =>
+    apiClient.get<ConsultationInvoiceDTO[]>(`/api/billing/patients/${patientId}/invoices`),
+  getInvoicePdf: (invoiceId: number) =>
+    apiClient.get<Blob>(`/api/billing/invoices/${invoiceId}/pdf`, {
+      responseType: 'blob' as any
+    }),
 }

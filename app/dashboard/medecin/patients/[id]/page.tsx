@@ -17,6 +17,7 @@ import { rdvApi, type StatutRDV } from "@/api/rdv.api"
 import { medicationApi, type MedicationDTO } from "@/api/medication.api"
 import { prescriptionApi, type PrescriptionDTO, type PrescriptionLineDTO } from "@/api/prescription.api"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Combobox } from "@/components/ui/combobox"
 import {
   User,
   Calendar,
@@ -122,6 +123,18 @@ export default function PatientDetailsPage() {
   const deleteConsultationMutation = useMutation({
     mutationFn: (consultationId: number) => consultationApi.delete(consultationId),
   })
+  const addPrescriptionLineMutation = useMutation({
+    mutationFn: async ({ prescriptionId, line }: { prescriptionId: number; line: PrescriptionLineDTO }) => {
+      const response = await prescriptionApi.addLine(prescriptionId, line)
+      return response.data
+    },
+  })
+  const createPrescriptionMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const { data } = await prescriptionApi.create(payload)
+      return data
+    },
+  })
   const [patient, setPatient] = useState<Patient | null>(null)
   const [consultations, setConsultations] = useState<ConsultationViewModel[]>([])
   const [consultationDialogOpen, setConsultationDialogOpen] = useState(false)
@@ -150,7 +163,8 @@ export default function PatientDetailsPage() {
       if (!ordonnanceDialogOpen) return
 
       try {
-        const { default: SignaturePad } = await import("signature_pad")
+        // @ts-ignore: signature_pad has no types in this project; import as any
+        const SignaturePad = (await import("signature_pad")).default as any
         const canvas = signatureCanvasRef.current
 
         if (!isMounted || !canvas) return
@@ -445,19 +459,22 @@ export default function PatientDetailsPage() {
 
     if (hasExistingPrescription && consultation.prescription?.id) {
       try {
-        const lastResponse = await validLines.reduce<Promise<PrescriptionDTO>>(async (prevPromise, line) => {
-          await prevPromise
+        let lastResponse = consultation.prescription
+        
+        for (const line of validLines) {
           const med = medications.find((m) => m.id === Number(line.medicationId))
-          const response = await prescriptionApi.addLine(consultation.prescription!.id!, {
-            medicationId: Number(line.medicationId),
-            dosage: line.posologie,
-            durationDays: Number.parseInt(line.duree, 10) || 0,
-            comment: line.commentaire,
-            lineType: "MEDICATION",
-            medicationName: med?.commercialName,
+          lastResponse = await addPrescriptionLineMutation.mutateAsync({
+            prescriptionId: consultation.prescription!.id!,
+            line: {
+              medicationId: Number(line.medicationId),
+              dosage: line.posologie,
+              durationDays: Number.parseInt(line.duree, 10) || 0,
+              comment: line.commentaire,
+              lineType: "MEDICATION",
+              medicationName: med?.commercialName,
+            },
           })
-          return response.data
-        }, Promise.resolve(consultation.prescription))
+        }
 
         updateConsultationsState((prev) => prev.map((c) => (c.id === consultationId ? { ...c, prescription: lastResponse } : c)))
         setOrdonnanceDialogOpen(false)
@@ -508,7 +525,7 @@ export default function PatientDetailsPage() {
           return
         }
 
-        const { data: created } = await prescriptionApi.create(payload)
+        const created = await createPrescriptionMutation.mutateAsync(payload)
         updateConsultationsState((prev) => prev.map((c) => (c.id === consultationId ? { ...c, prescription: created } : c)))
         closeOrdonnanceDialog()
 
@@ -570,8 +587,8 @@ export default function PatientDetailsPage() {
     }
 
     const patientName = `${patient.nom ?? ""} ${patient.prenom ?? ""}`.trim()
-    const doctorName = [userDetails?.prenom, userDetails?.nom].filter(Boolean).join(" ") || "Médecin"
-    const clinicName = userDetails?.clinicName || "Cabinet"
+    const doctorName = [userDetails?.firstName, userDetails?.lastName].filter(Boolean).join(" ") || "Médecin"
+    const clinicName = "Cabinet Médical"
     const linesHtml = prescription.lines
       .map((line) => {
         const medicationName = line.medicationName || "Médicament"
@@ -1082,25 +1099,21 @@ export default function PatientDetailsPage() {
                                 className="flex gap-2 items-start p-3 rounded-lg bg-background/50 border border-border/50"
                               >
                                 <div className="flex-1 space-y-2">
-                                  <Select
+                                  <Combobox
+                                    options={medications.map((medication) => ({
+                                      value: String(medication.id),
+                                      label: medication.commercialName,
+                                      subtitle: `${medication.dosage} • ${medication.form} • ${medication.type}`
+                                    }))}
                                     value={med.medicationId === "" ? "" : String(med.medicationId)}
                                     onValueChange={(value) => updateMedication(index, "medicationId", Number(value))}
-                                  >
-                                    <SelectTrigger className="bg-background/50">
-                                      <SelectValue placeholder="Sélectionner un médicament" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {medicationsLoading && <SelectItem value="" disabled>Chargement...</SelectItem>}
-                                      {!medicationsLoading && medications.length === 0 && (
-                                        <SelectItem value="" disabled>Aucun médicament disponible</SelectItem>
-                                      )}
-                                      {medications.map((medication) => (
-                                        <SelectItem key={medication.id} value={String(medication.id)}>
-                                          {medication.commercialName} - {medication.dosage} ({medication.form})
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                    placeholder="Sélectionner un médicament"
+                                    searchPlaceholder="Rechercher un médicament (nom, dosage, forme)..."
+                                    emptyText={medicationsLoading ? "Chargement..." : "Aucun médicament trouvé"}
+                                    className="bg-background/50"
+                                    disabled={medicationsLoading || medications.length === 0}
+                                    allowClear={true}
+                                  />
                                   <Input
                                     placeholder="Posologie (ex: 1 comprimé 3 fois par jour)"
                                     value={med.posologie}

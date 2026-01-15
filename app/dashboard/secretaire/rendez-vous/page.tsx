@@ -26,6 +26,7 @@ import { getLocalDateString } from "@/lib/date.utils"
 import { useAuth } from "@/lib/auth-context"
 import { useCurrentUser } from "@/hooks/use-user"
 import { validateRequired } from "@/lib/validation.utils"
+import { Combobox } from "@/components/ui/combobox"
 
 interface Appointment {
   id: string
@@ -569,31 +570,20 @@ export default function RendezVousPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="patient">Patient *</Label>
-                <Select
+                <Combobox
+                  options={patients.map((patient) => ({
+                    value: patient.id.toString(),
+                    label: `${patient.prenom} ${patient.nom}`,
+                    subtitle: `CIN: ${patient.cin} • Tél: ${patient.telephone}`
+                  }))}
                   value={formData.patientId}
                   onValueChange={(value) => setFormData({ ...formData, patientId: value })}
-                >
-                  <SelectTrigger className={errors.patientId ? "border-destructive" : ""}>
-                    <SelectValue placeholder="Sélectionner un patient" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {isLoadingPatients ? (
-                      <SelectItem value="loading" disabled>
-                        Chargement des patients...
-                      </SelectItem>
-                    ) : patients.length === 0 ? (
-                      <SelectItem value="empty" disabled>
-                        Aucun patient disponible
-                      </SelectItem>
-                    ) : (
-                      patients.map((patient) => (
-                        <SelectItem key={patient.id} value={patient.id.toString()}>
-                          {patient.prenom} {patient.nom} - {patient.cin}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+                  placeholder="Sélectionner un patient"
+                  searchPlaceholder="Rechercher un patient (nom, prénom, CIN)..."
+                  emptyText={isLoadingPatients ? "Chargement..." : "Aucun patient trouvé"}
+                  className={errors.patientId ? "border-destructive" : ""}
+                  disabled={isLoadingPatients || patients.length === 0}
+                />
                 {errors.patientId && (
                   <p className="text-xs text-destructive flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" />

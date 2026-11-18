@@ -10,9 +10,23 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Calendar, ChevronLeft, ChevronRight, Clock, User, AlertCircle, Edit2, Trash2 } from "lucide-react"
-import { useState } from "react"
-import { MOCK_PATIENTS } from "@/lib/mock-data"
+import { useState, useMemo } from "react"
+
 import { useToast } from "@/hooks/use-toast"
+import { usePatients } from "@/hooks/use-patient"
+import {
+  useAppointmentsByDate,
+  useCreateAppointment,
+  useUpdateAppointment,
+  useDeleteAppointment,
+  useUpdateAppointmentStatus
+} from "@/hooks/use-appointment"
+import { appointmentHelpers, MotifRDV } from "@/api/appointment.api"
+import { getLocalDateString } from "@/lib/date.utils"
+import { useAuth } from "@/lib/auth-context"
+import { useCurrentUser } from "@/hooks/use-user"
+import { validateRequired } from "@/lib/validation.utils"
+import { Combobox } from "@/components/ui/combobox"
 
 interface Appointment {
   id: string
@@ -20,40 +34,10 @@ interface Appointment {
   patientName: string
   date: string
   time: string
-  motif: string
-  status: "confirmé" | "en_attente" | "annulé"
+  motif: MotifRDV
+  status: "confirmé" | "en_attente" | "annulé" | "en_consultation" | "terminé" | "absent"
   notes?: string
 }
-
-const MOCK_APPOINTMENTS: Appointment[] = [
-  {
-    id: "1",
-    patientId: "1",
-    patientName: "Ahmed Benali",
-    date: "2025-01-15",
-    time: "09:00",
-    motif: "Consultation de routine",
-    status: "confirmé",
-  },
-  {
-    id: "2",
-    patientId: "2",
-    patientName: "Fatima Zahra",
-    date: "2025-01-15",
-    time: "09:30",
-    motif: "Suivi post-opératoire",
-    status: "confirmé",
-  },
-  {
-    id: "3",
-    patientId: "3",
-    patientName: "Mohammed Alami",
-    date: "2025-01-15",
-    time: "14:00",
-    motif: "Contrôle annuel",
-    status: "en_attente",
-  },
-]
 
 const TIME_SLOTS = [
   "08:00",
@@ -80,7 +64,6 @@ const TIME_SLOTS = [
 ]
 
 export default function RendezVousPage() {
-  const [appointments, setAppointments] = useState<Appointment[]>(MOCK_APPOINTMENTS)
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; time: string } | null>(null)
@@ -89,17 +72,41 @@ export default function RendezVousPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false)
   const { toast } = useToast()
+  const { user } = useAuth()
+
+  // Fetch user details directly using React Query
+  const { data: userDetails } = useCurrentUser(user?.email)
+  const cabinetId = userDetails?.clinicId ?? 0
+
+  // Debug logging
+  console.log("[RendezVousPage] User from auth:", user)
+  console.log("[RendezVousPage] User details from API:", userDetails)
+  console.log("[RendezVousPage] Cabinet ID:", cabinetId)
 
   // Form state
   const [formData, setFormData] = useState({
     patientId: "",
-    motif: "",
+    motif: "" as MotifRDV | "",
     notes: "",
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  const formatDate = (date: Date) => {
-    return date.toISOString().split("T")[0]
+  // API hooks
+  const selectedDateStr = formatDate(selectedDate)
+  const { data: appointmentsData = [], isLoading } = useAppointmentsByDate(selectedDateStr, cabinetId)
+  const { data: patients = [], isLoading: isLoadingPatients } = usePatients(cabinetId)
+  const createMutation = useCreateAppointment()
+  const updateMutation = useUpdateAppointment()
+  const deleteMutation = useDeleteAppointment()
+  const updateStatusMutation = useUpdateAppointmentStatus()
+
+  // Transform backend appointments to frontend format
+  const appointments = useMemo(() => {
+    return appointmentsData.map(apt => appointmentHelpers.toFrontend(apt))
+  }, [appointmentsData])
+
+  function formatDate(date: Date) {
+    return getLocalDateString(date)
   }
 
   const getDaysInMonth = (date: Date) => {
@@ -162,87 +169,152 @@ export default function RendezVousPage() {
     if (!formData.patientId) {
       newErrors.patientId = "Veuillez sélectionner un patient"
     }
-    if (!formData.motif.trim()) {
-      newErrors.motif = "Le motif est obligatoire"
+    
+    // Validate motif
+    const motifValidation = validateRequired(formData.motif, "Le motif", 2, 200)
+    if (!motifValidation.valid) newErrors.motif = motifValidation.error!
+
+    // Notes are optional, but if provided, validate length
+    if (formData.notes && formData.notes.length > 500) {
+      newErrors.notes = "Les notes sont trop longues (max 500 caractères)"
+    }
+
+    // Validate appointment date/time is not in the past
+    if (selectedSlot) {
+      const appointmentDateTime = new Date(`${selectedSlot.date}T${selectedSlot.time}`)
+      const now = new Date()
+      
+      if (appointmentDateTime < now) {
+        newErrors.slot = "Impossible de prendre un rendez-vous à une date ou heure passée"
+      }
+    }
+
+    // Check if patient already has an appointment on the selected date
+    if (formData.patientId && selectedSlot) {
+      const patientAppointmentsOnDate = appointments.filter(
+        apt => apt.patientId === formData.patientId && 
+               apt.date === selectedSlot.date &&
+               apt.status !== "annulé"
+      )
+      
+      if (patientAppointmentsOnDate.length > 0) {
+        newErrors.patientId = "Ce patient a déjà un rendez-vous programmé pour cette date"
+      }
     }
 
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!validateForm() || !selectedSlot) return
 
-    const patient = MOCK_PATIENTS.find((p) => p.id === formData.patientId)
+    const patient = patients.find((p) => p.id.toString() === formData.patientId)
     if (!patient) return
 
-    const newAppointment: Appointment = {
-      id: `apt${Date.now()}`,
-      patientId: formData.patientId,
-      patientName: patient.name,
-      date: selectedSlot.date,
-      time: selectedSlot.time,
-      motif: formData.motif,
-      status: "en_attente",
-      notes: formData.notes,
-    }
+    const patientName = `${patient.prenom} ${patient.nom}`
 
-    setAppointments([...appointments, newAppointment])
-    setIsCreateDialogOpen(false)
-    toast({
-      title: "Rendez-vous créé",
-      description: `Rendez-vous avec ${patient.name} créé pour le ${selectedSlot.date} à ${selectedSlot.time}`,
-    })
+    try {
+      const requestData = appointmentHelpers.toBackendRequest(
+        parseInt(formData.patientId),
+        cabinetId,
+        selectedSlot.date,
+        selectedSlot.time,
+        formData.motif as MotifRDV,
+        formData.notes
+      )
+
+      await createMutation.mutateAsync(requestData)
+
+      setIsCreateDialogOpen(false)
+      toast({
+        title: "Rendez-vous créé",
+        description: `Rendez-vous avec ${patientName} créé pour le ${selectedSlot.date} à ${selectedSlot.time}`,
+      })
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible de créer le rendez-vous",
+        variant: "destructive",
+      })
+    }
   }
 
-  const handleEdit = () => {
+  const handleEdit = async () => {
     if (!validateForm() || !selectedAppointment) return
 
-    const patient = MOCK_PATIENTS.find((p) => p.id === formData.patientId)
+    const patient = patients.find((p) => p.id.toString() === formData.patientId)
     if (!patient) return
 
-    const updatedAppointments = appointments.map((apt) =>
-      apt.id === selectedAppointment.id
-        ? {
-            ...apt,
-            patientId: formData.patientId,
-            patientName: patient.name,
-            motif: formData.motif,
-            notes: formData.notes,
-          }
-        : apt,
-    )
+    try {
+      await updateMutation.mutateAsync({
+        id: parseInt(selectedAppointment.id),
+        data: {
+          patientId: parseInt(formData.patientId),
+          cabinetId: cabinetId,
+          date: selectedAppointment.date,
+          Heure_debut: selectedAppointment.time,
+          Heure_fin: "", // Will be calculated by backend
+          motifRDV: formData.motif as MotifRDV,
+          notes: formData.notes,
+        }
+      })
 
-    setAppointments(updatedAppointments)
-    setIsEditDialogOpen(false)
-    setIsDetailsDialogOpen(false)
-    toast({
-      title: "Rendez-vous modifié",
-      description: "Les informations du rendez-vous ont été mises à jour",
-    })
+      setIsEditDialogOpen(false)
+      setIsDetailsDialogOpen(false)
+      toast({
+        title: "Rendez-vous modifié",
+        description: "Les informations du rendez-vous ont été mises à jour",
+      })
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible de modifier le rendez-vous",
+        variant: "destructive",
+      })
+    }
   }
 
-  const handleDelete = (appointment: Appointment) => {
-    if (confirm(`Êtes-vous sûr de vouloir supprimer ce rendez-vous ?`)) {
-      setAppointments(appointments.filter((apt) => apt.id !== appointment.id))
+  const handleDelete = async (appointment: Appointment) => {
+    if (!confirm(`Êtes-vous sûr de vouloir supprimer ce rendez-vous ?`)) return
+
+    try {
+      await deleteMutation.mutateAsync(parseInt(appointment.id))
+
       setIsDetailsDialogOpen(false)
       toast({
         title: "Rendez-vous supprimé",
         description: "Le rendez-vous a été supprimé avec succès",
         variant: "destructive",
       })
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible de supprimer le rendez-vous",
+        variant: "destructive",
+      })
     }
   }
 
-  const handleStatusChange = (appointmentId: string, newStatus: "confirmé" | "en_attente" | "annulé") => {
-    const updatedAppointments = appointments.map((apt) =>
-      apt.id === appointmentId ? { ...apt, status: newStatus } : apt,
-    )
-    setAppointments(updatedAppointments)
-    toast({
-      title: "Statut mis à jour",
-      description: `Le statut a été changé à "${newStatus}"`,
-    })
+  const handleStatusChange = async (appointmentId: string, newStatus: "confirmé" | "en_attente" | "annulé" | "en_consultation" | "terminé" | "absent") => {
+    try {
+      const backendStatus = appointmentHelpers.toBackendStatus(newStatus)
+      await updateStatusMutation.mutateAsync({
+        id: parseInt(appointmentId),
+        status: backendStatus
+      })
+
+      toast({
+        title: "Statut mis à jour",
+        description: `Le statut a été changé à "${newStatus}"`,
+      })
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible de mettre à jour le statut",
+        variant: "destructive",
+      })
+    }
   }
 
   const openEditDialog = (appointment: Appointment) => {
@@ -263,6 +335,12 @@ export default function RendezVousPage() {
         return "bg-success/10 text-success border-success/20"
       case "en_attente":
         return "bg-warning/10 text-warning border-warning/20"
+      case "en_consultation":
+        return "bg-blue-500/10 text-blue-500 border-blue-500/20"
+      case "terminé":
+        return "bg-gray-500/10 text-gray-500 border-gray-500/20"
+      case "absent":
+        return "bg-orange-500/10 text-orange-500 border-orange-500/20"
       case "annulé":
         return "bg-destructive/10 text-destructive border-destructive/20"
       default:
@@ -288,7 +366,6 @@ export default function RendezVousPage() {
   const dayNames = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"]
 
   const days = getDaysInMonth(currentMonth)
-  const selectedDateStr = formatDate(selectedDate)
 
   return (
     <DashboardLayout>
@@ -396,62 +473,73 @@ export default function RendezVousPage() {
                 </h2>
                 <Badge variant="outline" className="gap-1">
                   <Clock className="w-3 h-3" />
-                  {getAppointmentsForDate(selectedDate).length} RDV
+                  {isLoading ? "..." : `${getAppointmentsForDate(selectedDate).length} RDV`}
                 </Badge>
               </div>
 
               {/* Time Slots Grid */}
               <div className="space-y-2 max-h-[600px] overflow-y-auto pr-2">
-                {TIME_SLOTS.map((time) => {
-                  const appointment = getAppointmentForSlot(selectedDateStr, time)
-                  const isBooked = !!appointment
+                {isLoading ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    Chargement des rendez-vous...
+                  </div>
+                ) : (
+                  TIME_SLOTS.map((time) => {
+                    const appointment = getAppointmentForSlot(selectedDateStr, time)
+                    const isBooked = !!appointment
 
-                  return (
-                    <button
-                      key={time}
-                      onClick={() => handleSlotClick(time)}
-                      className={`
+                    return (
+                      <button
+                        key={time}
+                        onClick={() => handleSlotClick(time)}
+                        className={`
                         w-full p-4 rounded-lg border-2 transition-all text-left
-                        ${
-                          isBooked
+                        ${isBooked && appointment
                             ? appointment.status === "confirmé"
                               ? "bg-success/10 border-success/30 hover:bg-success/20"
                               : appointment.status === "en_attente"
                                 ? "bg-warning/10 border-warning/30 hover:bg-warning/20"
-                                : "bg-destructive/10 border-destructive/30 hover:bg-destructive/20"
+                                : appointment.status === "en_consultation"
+                                  ? "bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/20"
+                                  : appointment.status === "terminé"
+                                    ? "bg-gray-500/10 border-gray-500/30 hover:bg-gray-500/20"
+                                    : appointment.status === "absent"
+                                      ? "bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/20"
+                                      : "bg-destructive/10 border-destructive/30 hover:bg-destructive/20"
                             : "border-border/50 hover:bg-primary/5 hover:border-primary/30"
-                        }
+                          }
                       `}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-4 h-4 text-muted-foreground" />
-                            <span className="font-mono font-medium">{time}</span>
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2">
+                              <Clock className="w-4 h-4 text-muted-foreground" />
+                              <span className="font-mono font-medium">{time}</span>
+                            </div>
+                            {isBooked && appointment && (
+                              <>
+                                <div className="h-4 w-px bg-border" />
+                                <div className="flex items-center gap-2">
+                                  <User className="w-4 h-4 text-muted-foreground" />
+                                  <span className="font-medium">{appointment.patientName}</span>
+                                </div>
+                                <Badge className={`${getStatusColor(appointment.status)} text-xs`}>
+                                  {appointment.status}
+                                </Badge>
+                              </>
+                            )}
+                            {!isBooked && <span className="text-sm text-muted-foreground">Disponible</span>}
                           </div>
                           {isBooked && appointment && (
-                            <>
-                              <div className="h-4 w-px bg-border" />
-                              <div className="flex items-center gap-2">
-                                <User className="w-4 h-4 text-muted-foreground" />
-                                <span className="font-medium">{appointment.patientName}</span>
-                              </div>
-                              <Badge className={`${getStatusColor(appointment.status)} text-xs`}>
-                                {appointment.status}
-                              </Badge>
-                            </>
+                            <div className="text-xs text-muted-foreground truncate max-w-[200px]">
+                              {appointment.motif}
+                            </div>
                           )}
-                          {!isBooked && <span className="text-sm text-muted-foreground">Disponible</span>}
                         </div>
-                        {isBooked && appointment && (
-                          <div className="text-xs text-muted-foreground truncate max-w-[200px]">
-                            {appointment.motif}
-                          </div>
-                        )}
-                      </div>
-                    </button>
-                  )
-                })}
+                      </button>
+                    )
+                  })
+                )}
               </div>
             </div>
           </Card>
@@ -464,6 +552,15 @@ export default function RendezVousPage() {
               <DialogTitle>Nouveau Rendez-vous</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-4">
+              {errors.slot && (
+                <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">
+                  <p className="text-sm text-destructive flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4" />
+                    {errors.slot}
+                  </p>
+                </div>
+              )}
+              
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Calendar className="w-4 h-4" />
                 <span>{selectedSlot?.date}</span>
@@ -473,21 +570,20 @@ export default function RendezVousPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="patient">Patient *</Label>
-                <Select
+                <Combobox
+                  options={patients.map((patient) => ({
+                    value: patient.id.toString(),
+                    label: `${patient.prenom} ${patient.nom}`,
+                    subtitle: `CIN: ${patient.cin} • Tél: ${patient.telephone}`
+                  }))}
                   value={formData.patientId}
                   onValueChange={(value) => setFormData({ ...formData, patientId: value })}
-                >
-                  <SelectTrigger className={errors.patientId ? "border-destructive" : ""}>
-                    <SelectValue placeholder="Sélectionner un patient" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MOCK_PATIENTS.filter((p) => p.status === "Actif").map((patient) => (
-                      <SelectItem key={patient.id} value={patient.id}>
-                        {patient.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  placeholder="Sélectionner un patient"
+                  searchPlaceholder="Rechercher un patient (nom, prénom, CIN)..."
+                  emptyText={isLoadingPatients ? "Chargement..." : "Aucun patient trouvé"}
+                  className={errors.patientId ? "border-destructive" : ""}
+                  disabled={isLoadingPatients || patients.length === 0}
+                />
                 {errors.patientId && (
                   <p className="text-xs text-destructive flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" />
@@ -498,13 +594,18 @@ export default function RendezVousPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="motif">Motif *</Label>
-                <Input
-                  id="motif"
+                <Select
                   value={formData.motif}
-                  onChange={(e) => setFormData({ ...formData, motif: e.target.value })}
-                  placeholder="Ex: Consultation de routine"
-                  className={errors.motif ? "border-destructive" : ""}
-                />
+                  onValueChange={(value) => setFormData({ ...formData, motif: value as MotifRDV })}
+                >
+                  <SelectTrigger className={errors.motif ? "border-destructive" : ""}>
+                    <SelectValue placeholder="Sélectionner un motif" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CONSULTATION">Consultation</SelectItem>
+                    <SelectItem value="CONTROL">Contrôle</SelectItem>
+                  </SelectContent>
+                </Select>
                 {errors.motif && (
                   <p className="text-xs text-destructive flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" />
@@ -528,8 +629,12 @@ export default function RendezVousPage() {
               <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                 Annuler
               </Button>
-              <Button onClick={handleCreate} className="glow-primary">
-                Créer
+              <Button
+                onClick={handleCreate}
+                className="glow-primary"
+                disabled={createMutation.isPending}
+              >
+                {createMutation.isPending ? "Création..." : "Créer"}
               </Button>
             </div>
           </DialogContent>
@@ -576,12 +681,12 @@ export default function RendezVousPage() {
 
                 <div className="space-y-2">
                   <Label>Changer le statut</Label>
-                  <div className="flex gap-2">
+                  <div className="grid grid-cols-3 gap-2">
                     <Button
                       size="sm"
                       variant={selectedAppointment.status === "confirmé" ? "default" : "outline"}
                       onClick={() => handleStatusChange(selectedAppointment.id, "confirmé")}
-                      className="flex-1"
+                      disabled={updateStatusMutation.isPending}
                     >
                       Confirmé
                     </Button>
@@ -589,15 +694,39 @@ export default function RendezVousPage() {
                       size="sm"
                       variant={selectedAppointment.status === "en_attente" ? "default" : "outline"}
                       onClick={() => handleStatusChange(selectedAppointment.id, "en_attente")}
-                      className="flex-1"
+                      disabled={updateStatusMutation.isPending}
                     >
                       En attente
                     </Button>
                     <Button
                       size="sm"
+                      variant={selectedAppointment.status === "en_consultation" ? "default" : "outline"}
+                      onClick={() => handleStatusChange(selectedAppointment.id, "en_consultation")}
+                      disabled={updateStatusMutation.isPending}
+                    >
+                      En consultation
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={selectedAppointment.status === "terminé" ? "default" : "outline"}
+                      onClick={() => handleStatusChange(selectedAppointment.id, "terminé")}
+                      disabled={updateStatusMutation.isPending}
+                    >
+                      Terminé
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={selectedAppointment.status === "absent" ? "default" : "outline"}
+                      onClick={() => handleStatusChange(selectedAppointment.id, "absent")}
+                      disabled={updateStatusMutation.isPending}
+                    >
+                      Absent
+                    </Button>
+                    <Button
+                      size="sm"
                       variant={selectedAppointment.status === "annulé" ? "default" : "outline"}
                       onClick={() => handleStatusChange(selectedAppointment.id, "annulé")}
-                      className="flex-1"
+                      disabled={updateStatusMutation.isPending}
                     >
                       Annulé
                     </Button>
@@ -617,9 +746,10 @@ export default function RendezVousPage() {
                     variant="outline"
                     onClick={() => handleDelete(selectedAppointment)}
                     className="flex-1 gap-2 text-destructive hover:bg-destructive/10"
+                    disabled={deleteMutation.isPending}
                   >
                     <Trash2 className="w-4 h-4" />
-                    Supprimer
+                    {deleteMutation.isPending ? "Suppression..." : "Supprimer"}
                   </Button>
                 </div>
               </div>
@@ -653,11 +783,21 @@ export default function RendezVousPage() {
                     <SelectValue placeholder="Sélectionner un patient" />
                   </SelectTrigger>
                   <SelectContent>
-                    {MOCK_PATIENTS.filter((p) => p.status === "Actif").map((patient) => (
-                      <SelectItem key={patient.id} value={patient.id}>
-                        {patient.name}
+                    {isLoadingPatients ? (
+                      <SelectItem value="loading" disabled>
+                        Chargement des patients...
                       </SelectItem>
-                    ))}
+                    ) : patients.length === 0 ? (
+                      <SelectItem value="empty" disabled>
+                        Aucun patient disponible
+                      </SelectItem>
+                    ) : (
+                      patients.map((patient) => (
+                        <SelectItem key={patient.id} value={patient.id.toString()}>
+                          {patient.prenom} {patient.nom} - {patient.cin}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
                 {errors.patientId && (
@@ -670,12 +810,18 @@ export default function RendezVousPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="edit-motif">Motif *</Label>
-                <Input
-                  id="edit-motif"
+                <Select
                   value={formData.motif}
-                  onChange={(e) => setFormData({ ...formData, motif: e.target.value })}
-                  className={errors.motif ? "border-destructive" : ""}
-                />
+                  onValueChange={(value) => setFormData({ ...formData, motif: value as MotifRDV })}
+                >
+                  <SelectTrigger className={errors.motif ? "border-destructive" : ""}>
+                    <SelectValue placeholder="Sélectionner un motif" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CONSULTATION">Consultation</SelectItem>
+                    <SelectItem value="CONTROL">Contrôle</SelectItem>
+                  </SelectContent>
+                </Select>
                 {errors.motif && (
                   <p className="text-xs text-destructive flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" />
@@ -698,8 +844,12 @@ export default function RendezVousPage() {
               <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
                 Annuler
               </Button>
-              <Button onClick={handleEdit} className="glow-primary">
-                Mettre à jour
+              <Button
+                onClick={handleEdit}
+                className="glow-primary"
+                disabled={updateMutation.isPending}
+              >
+                {updateMutation.isPending ? "Mise à jour..." : "Mettre à jour"}
               </Button>
             </div>
           </DialogContent>

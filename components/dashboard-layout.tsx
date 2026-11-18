@@ -4,7 +4,9 @@ import type React from "react"
 import { DollarSign, Building2 } from "lucide-react"
 
 import { useAuth } from "@/lib/auth-context"
-import { useNotifications } from "@/lib/notifications-context"
+import { useNotifications } from "@/hooks/use-notifications"
+import { useCurrentUser } from "@/hooks/use-user"
+import { notificationApi } from "@/api/notification.api"
 import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
@@ -34,6 +36,7 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { user, logout, isLoading: authLoading } = useAuth()
+  const { data: userDetails } = useCurrentUser(user?.email)
   const router = useRouter()
   const { theme, setTheme } = useTheme()
   const pathname = usePathname()
@@ -41,16 +44,41 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { unreadCount, unreadBillingCount } = useNotifications()
   const { toast } = useToast()
   const [mounted, setMounted] = useState(false)
+  const [isRequestingPatient, setIsRequestingPatient] = useState(false)
 
   useEffect(() => {
     setMounted(true)
   }, [])
 
   useEffect(() => {
-    if (mounted && !authLoading && !user) {
-      router.push("/")
+    if (!mounted || authLoading) return
+
+    const hasStoredTokens = typeof window !== "undefined" &&
+      (localStorage.getItem("keycloak_token") || localStorage.getItem("keycloak_refresh_token"))
+
+    if (!user && !hasStoredTokens) {
+      console.log("User absent et aucun token stocké, redirection vers login")
+      router.push("/login")
     }
   }, [mounted, authLoading, user, router])
+
+  // Verify user role matches the current dashboard path
+  useEffect(() => {
+    if (mounted && !authLoading && user) {
+      const pathRole = pathname.split('/')[2] // Extract role from /dashboard/{role}/...
+      
+      // Only redirect if we're on a role-specific page and it doesn't match
+      if (pathRole && ['admin', 'medecin', 'secretaire'].includes(pathRole) && pathRole !== user.role) {
+        console.warn(`Role mismatch detected! User role: ${user.role}, Path role: ${pathRole}`)
+        toast({
+          title: "Redirection",
+          description: `Vous avez été redirigé vers votre dashboard ${user.role}`,
+          variant: "default",
+        })
+        router.push(`/dashboard/${user.role}`)
+      }
+    }
+  }, [mounted, authLoading, user, pathname, router, toast])
 
   if (!mounted || authLoading || !user) {
     return (
@@ -67,12 +95,40 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     router.push("/")
   }
 
-  const handleRequestNextPatient = () => {
-    toast({
-      title: "Demande envoyée",
-      description: "Notification envoyée à la secrétaire",
-    })
-    router.push(`/dashboard/${user.role}`)
+  const handleRequestNextPatient = async () => {
+    if (!userDetails?.id || !userDetails?.clinicId) {
+      toast({
+        title: "Erreur",
+        description: "Impossible d'envoyer la demande. Informations utilisateur manquantes.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsRequestingPatient(true)
+    try {
+      const doctorName = `Dr. ${userDetails.firstName || ''} ${userDetails.lastName || ''}`.trim() || 'Médecin'
+      
+      await notificationApi.requestNextPatient({
+        doctorId: userDetails.id,
+        doctorName: doctorName,
+        clinicId: userDetails.clinicId,
+      })
+
+      toast({
+        title: "Demande envoyée",
+        description: "La secrétaire a été notifiée pour appeler le patient suivant",
+      })
+    } catch (error: any) {
+      console.error('Error requesting next patient:', error)
+      toast({
+        title: "Erreur",
+        description: error.response?.data?.message || "Impossible d'envoyer la notification à la secrétaire",
+        variant: "destructive",
+      })
+    } finally {
+      setIsRequestingPatient(false)
+    }
   }
 
   // Navigation items based on role
@@ -199,9 +255,17 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
             <div className="flex items-center gap-2">
               {user.role === "medecin" && (
-                <Button variant="default" size="sm" onClick={handleRequestNextPatient} className="gap-2 glow-primary">
+                <Button 
+                  variant="default" 
+                  size="sm" 
+                  onClick={handleRequestNextPatient} 
+                  disabled={isRequestingPatient}
+                  className="gap-2 glow-primary"
+                >
                   <UserPlus className="w-4 h-4" />
-                  <span className="hidden sm:inline">Patient suivant</span>
+                  <span className="hidden sm:inline">
+                    {isRequestingPatient ? "Envoi..." : "Patient suivant"}
+                  </span>
                 </Button>
               )}
 

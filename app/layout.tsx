@@ -5,7 +5,6 @@ import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/lib/auth-context"
-import { NotificationsProvider } from "@/lib/notifications-context"
 import { QueryProvider } from "@/components/providers/query-provider"
 import { Toaster } from "@/components/ui/toaster"
 
@@ -46,10 +45,8 @@ export default function RootLayout({
         <QueryProvider>
           <ThemeProvider defaultTheme="dark">
             <AuthProvider>
-              <NotificationsProvider>
-                {children}
-                <Toaster />
-              </NotificationsProvider>
+              {children}
+              <Toaster />
             </AuthProvider>
           </ThemeProvider>
         </QueryProvider>

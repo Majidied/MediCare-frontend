@@ -8,10 +8,16 @@ import { Search, FileText, Calendar, Phone, Loader2 } from "lucide-react"
 import { useMemo, useState } from "react"
 import Link from "next/link"
 import { usePatients } from "@/hooks/use-patient"
+import { useAuth } from "@/lib/auth-context"
+import { useCurrentUser } from "@/hooks/use-user"
 
 export default function PatientsPage() {
   const [searchQuery, setSearchQuery] = useState("")
-  const { data: patients = [], isLoading, isError, error } = usePatients()
+  const { user } = useAuth()
+  const { data: userDetails } = useCurrentUser(user?.email)
+  const cabinetId = userDetails?.clinicId ?? 0
+
+  const { data: patients = [], isLoading, isError, error } = usePatients(cabinetId)
 
   const filteredPatients = useMemo(() => {
     const query = searchQuery.toLowerCase()
@@ -33,6 +39,18 @@ export default function PatientsPage() {
         return "bg-primary/10 text-primary border-primary/20"
     }
   }
+
+  const newPatientsThisMonth = (() => {
+    const now = new Date()
+    const month = now.getMonth()
+    const year = now.getFullYear()
+
+    return patients.filter((patient) => {
+      if (!patient.createdAt) return false
+      const created = new Date(patient.createdAt)
+      return !Number.isNaN(created.getTime()) && created.getMonth() === month && created.getFullYear() === year
+    }).length
+  })()
 
   return (
     <DashboardLayout>
@@ -84,7 +102,7 @@ export default function PatientsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Nouveaux ce mois</p>
-                    <h3 className="text-2xl font-bold mt-2">12</h3>
+                    <h3 className="text-2xl font-bold mt-2">{newPatientsThisMonth}</h3>
                   </div>
                   <div className="p-3 rounded-xl bg-accent/10 border border-accent/20">
                     <FileText className="w-6 h-6 text-accent" />
@@ -115,7 +133,7 @@ export default function PatientsPage() {
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-12 rounded-full bg-primary/10 border-2 border-primary/20 flex items-center justify-center group-hover:scale-110 transition-transform">
                           <span className="text-lg font-bold text-primary">
-                            {patient.nom[0]}{patient.prenom[0]}
+                            {patient.nom?.[0] ?? '?'}{patient.prenom?.[0] ?? '?'}
                           </span>
                         </div>
                         <div>

@@ -24,13 +24,17 @@ export interface Patient {
     typeMutuelle?: TypeMutuelle;
     sexe: Sexe;
     cabinetId: number;
+    createdAt?: string;
 }
 
-export interface CreatePatientDTO extends Omit<Patient, 'id'> {}
+export interface CreatePatientDTO extends Omit<Patient, 'id' | 'createdAt'> {}
 
 export const patientApi = {
     getAll: (nom?: string, prenom?: string) =>
         apiClient.get<Patient[]>('/api/patients', { params: { nom, prenom } }),
+
+    getByCabinet: (cabinetId: number) =>
+        apiClient.get<Patient[]>(`/api/patients/by-cabinet/${cabinetId}`),
 
     getById: (id: number) =>
         apiClient.get<Patient>(`/api/patients/${id}`),

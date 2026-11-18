@@ -18,79 +18,127 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Pencil, Trash2, Search, UserPlus, AlertCircle } from "lucide-react"
-import type { User, UserRole } from "@/lib/mock-data"
-import { MOCK_USERS } from "@/lib/mock-data"
+import { Pencil, Trash2, Search, UserPlus, AlertCircle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
+import { useUsers, useCreateUser, useUpdateUser, useDeactivateUser } from "@/hooks/use-user"
+import { useActiveClinics } from "@/hooks/use-clinic"
+import type { UserDTO, UserRole, CreateUserRequest } from "@/api/user.api"
+import { validateName, validateEmail, validatePhoneGeneral, validatePassword, PASSWORD_MIN_LENGTH } from "@/lib/validation.utils"
+import { Combobox } from "@/components/ui/combobox"
 
 type FormErrors = {
-  name?: string
-  email?: string
+  firstName?: string
+  lastName?: string
+  login?: string
+  phoneNumber?: string
   password?: string
   role?: string
+  clinicId?: string
 }
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const PASSWORD_MIN_LENGTH = 6
-
 const validateForm = (
-  data: { name: string; email: string; password: string; role: string },
+  data: { firstName: string; lastName: string; login: string; phoneNumber: string; password: string; role: string; clinicId: number | null },
+  users: UserDTO[] = [],
   isEdit = false,
+  editingUserId?: number
 ): FormErrors => {
   const errors: FormErrors = {}
 
-  if (!data.name.trim()) {
-    errors.name = "Le nom est obligatoire"
-  } else if (data.name.trim().length < 3) {
-    errors.name = "Le nom doit contenir au moins 3 caractères"
-  }
+  // Validate first name
+  const firstNameValidation = validateName(data.firstName, "prénom")
+  if (!firstNameValidation.valid) errors.firstName = firstNameValidation.error!
 
-  if (!data.email.trim()) {
-    errors.email = "L'email est obligatoire"
-  } else if (!EMAIL_REGEX.test(data.email)) {
-    errors.email = "Format d'email invalide"
-  }
+  // Validate last name
+  const lastNameValidation = validateName(data.lastName, "nom")
+  if (!lastNameValidation.valid) errors.lastName = lastNameValidation.error!
 
+  // Validate email
+  const emailValidation = validateEmail(data.login)
+  if (!emailValidation.valid) errors.login = emailValidation.error!
+
+  // Validate phone number
+  const phoneValidation = validatePhoneGeneral(data.phoneNumber)
+  if (!phoneValidation.valid) errors.phoneNumber = phoneValidation.error!
+
+  // Validate password (only if not editing or if password is provided)
   if (!isEdit || data.password) {
-    if (!data.password) {
-      errors.password = "Le mot de passe est obligatoire"
-    } else if (data.password.length < PASSWORD_MIN_LENGTH) {
-      errors.password = `Le mot de passe doit contenir au moins ${PASSWORD_MIN_LENGTH} caractères`
-    }
+    const passwordValidation = validatePassword(data.password, 'medium')
+    if (!passwordValidation.valid) errors.password = passwordValidation.error!
   }
 
   if (!data.role) {
     errors.role = "Le rôle est obligatoire"
   }
 
+  // Validate clinic for MEDCIN and SECRETAIRE roles
+  if ((data.role === "MEDCIN" || data.role === "SECRETAIRE") && !data.clinicId) {
+    errors.clinicId = "La clinique est obligatoire pour ce rôle"
+  }
+
+  // Validate that clinic doesn't already have a doctor/secretary
+  if (data.clinicId && (data.role === "MEDCIN" || data.role === "SECRETAIRE")) {
+    const existingUsersInClinic = users.filter(user => 
+      user.clinicId === data.clinicId && 
+      user.role === data.role &&
+      user.active &&
+      (!isEdit || user.id !== editingUserId)
+    )
+    
+    if (existingUsersInClinic.length > 0) {
+      if (data.role === "MEDCIN") {
+        errors.clinicId = "Cette clinique a déjà un médecin assigné"
+      } else if (data.role === "SECRETAIRE") {
+        errors.clinicId = "Cette clinique a déjà une secrétaire assignée"
+      }
+    }
+  }
+
   return errors
 }
 
 export default function UsersPage() {
-  const [users, setUsers] = useState<User[]>(MOCK_USERS)
+  const { data: users = [], isLoading, isError } = useUsers()
+  const { data: activeClinics = [] } = useActiveClinics()
+  const createUserMutation = useCreateUser()
+  const updateUserMutation = useUpdateUser()
+  const deactivateUserMutation = useDeactivateUser()
+
   const [searchQuery, setSearchQuery] = useState("")
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [editingUser, setEditingUser] = useState<User | null>(null)
+  const [editingUser, setEditingUser] = useState<UserDTO | null>(null)
 
   const [formErrors, setFormErrors] = useState<FormErrors>({})
 
   const [formData, setFormData] = useState({
-    name: "",
-    email: "",
+    firstName: "",
+    lastName: "",
+    login: "",
+    phoneNumber: "",
     password: "",
-    role: "medecin" as UserRole,
+    role: "MEDCIN" as UserRole,
+    clinicId: null as number | null,
   })
 
   const filteredUsers = users.filter(
     (user) =>
-      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      `${user.firstName} ${user.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.login.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.role.toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
-  const handleCreateUser = () => {
-    const errors = validateForm(formData)
+  // Helper to update form data without causing re-render issues
+  const handleInputChange = (field: string, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
+    if (formErrors[field as keyof FormErrors]) {
+      const newErrors = { ...formErrors }
+      delete newErrors[field as keyof FormErrors]
+      setFormErrors(newErrors)
+    }
+  }
+
+  const handleCreateUser = async () => {
+    const errors = validateForm(formData, users)
     setFormErrors(errors)
 
     if (Object.keys(errors).length > 0) {
@@ -99,27 +147,36 @@ export default function UsersPage() {
     }
 
     // Check if email already exists
-    if (users.some((u) => u.email === formData.email)) {
-      setFormErrors({ ...errors, email: "Cet email est déjà utilisé" })
+    if (users.some((u) => u.login === formData.login)) {
+      setFormErrors({ ...errors, login: "Cet email est déjà utilisé" })
       toast.error("Cet email est déjà utilisé")
       return
     }
 
-    const newUser: User = {
-      id: Date.now().toString(),
-      ...formData,
+    const newUser: CreateUserRequest = {
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      login: formData.login,
+      phoneNumber: formData.phoneNumber,
+      password: formData.password,
+      role: formData.role,
+      clinicId: formData.clinicId ?? undefined,
     }
-    setUsers([...users, newUser])
-    setIsCreateDialogOpen(false)
-    setFormData({ name: "", email: "", password: "", role: "medecin" })
-    setFormErrors({})
-    toast.success("Utilisateur créé avec succès")
+
+    try {
+      await createUserMutation.mutateAsync(newUser)
+      setIsCreateDialogOpen(false)
+      resetForm()
+      toast.success("Utilisateur créé avec succès")
+    } catch {
+      toast.error("Erreur lors de la création de l'utilisateur")
+    }
   }
 
-  const handleEditUser = () => {
-    if (!editingUser) return
+  const handleEditUser = async () => {
+    if (!editingUser?.id) return
 
-    const errors = validateForm(formData, true)
+    const errors = validateForm(formData, users, true, editingUser.id)
     setFormErrors(errors)
 
     if (Object.keys(errors).length > 0) {
@@ -128,32 +185,53 @@ export default function UsersPage() {
     }
 
     // Check if email already exists (excluding current user)
-    if (users.some((u) => u.email === formData.email && u.id !== editingUser.id)) {
-      setFormErrors({ ...errors, email: "Cet email est déjà utilisé" })
+    if (users.some((u) => u.login === formData.login && u.id !== editingUser.id)) {
+      setFormErrors({ ...errors, login: "Cet email est déjà utilisé" })
       toast.error("Cet email est déjà utilisé")
       return
     }
 
-    setUsers(users.map((u) => (u.id === editingUser.id ? { ...editingUser, ...formData } : u)))
-    setIsEditDialogOpen(false)
-    setEditingUser(null)
-    setFormData({ name: "", email: "", password: "", role: "medecin" })
-    setFormErrors({})
-    toast.success("Utilisateur modifié avec succès")
+    const updatedUser: UserDTO = {
+      ...editingUser,
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      login: formData.login,
+      phoneNumber: formData.phoneNumber,
+      ...(formData.password && { password: formData.password }),
+      role: formData.role,
+      clinicId: formData.clinicId ?? undefined,
+    }
+
+    try {
+      await updateUserMutation.mutateAsync({ id: editingUser.id, data: updatedUser })
+      setIsEditDialogOpen(false)
+      setEditingUser(null)
+      resetForm()
+      toast.success("Utilisateur modifié avec succès")
+    } catch {
+      toast.error("Erreur lors de la modification de l'utilisateur")
+    }
   }
 
-  const handleDeleteUser = (userId: string) => {
-    setUsers(users.filter((u) => u.id !== userId))
-    toast.success("Utilisateur supprimé avec succès")
+  const handleDeleteUser = async (userId: number) => {
+    try {
+      await deactivateUserMutation.mutateAsync(userId)
+      toast.success("Utilisateur désactivé avec succès")
+    } catch {
+      toast.error("Erreur lors de la désactivation de l'utilisateur")
+    }
   }
 
-  const openEditDialog = (user: User) => {
+  const openEditDialog = (user: UserDTO) => {
     setEditingUser(user)
     setFormData({
-      name: user.name,
-      email: user.email,
-      password: user.password,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      login: user.login,
+      phoneNumber: user.phoneNumber,
+      password: "",
       role: user.role,
+      clinicId: user.clinicId ?? null,
     })
     setFormErrors({})
     setIsEditDialogOpen(true)
@@ -161,29 +239,50 @@ export default function UsersPage() {
 
   const getRoleBadgeColor = (role: UserRole) => {
     switch (role) {
-      case "admin":
+      case "ADMIN":
         return "bg-purple-500/10 text-purple-500 border-purple-500/20"
-      case "medecin":
+      case "MEDCIN":
         return "bg-primary/10 text-primary border-primary/20"
-      case "secretaire":
+      case "SECRETAIRE":
         return "bg-blue-500/10 text-blue-500 border-blue-500/20"
     }
   }
 
   const getRoleLabel = (role: UserRole) => {
     switch (role) {
-      case "admin":
+      case "ADMIN":
         return "Administrateur"
-      case "medecin":
+      case "MEDCIN":
         return "Médecin"
-      case "secretaire":
+      case "SECRETAIRE":
         return "Secrétaire"
     }
   }
 
   const resetForm = () => {
-    setFormData({ name: "", email: "", password: "", role: "medecin" })
+    setFormData({ firstName: "", lastName: "", login: "", phoneNumber: "", password: "", role: "MEDCIN", clinicId: null })
     setFormErrors({})
+  }
+
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-96">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (isError) {
+    return (
+      <DashboardLayout>
+        <div className="flex flex-col items-center justify-center h-96 gap-4">
+          <AlertCircle className="w-12 h-12 text-destructive" />
+          <p className="text-muted-foreground">Erreur lors du chargement des utilisateurs</p>
+        </div>
+      </DashboardLayout>
+    )
   }
 
   return (
@@ -215,47 +314,82 @@ export default function UsersPage() {
                 <DialogDescription>Remplissez les informations pour créer un nouveau compte</DialogDescription>
               </DialogHeader>
               <div className="space-y-4 mt-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="firstName" className="flex items-center gap-1">
+                      Prénom <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="firstName"
+                      placeholder="Ex: Marie"
+                      value={formData.firstName}
+                      onChange={(e) => handleInputChange('firstName', e.target.value)}
+                      className={`glass-card border-border/50 ${formErrors.firstName ? "border-destructive" : ""}`}
+                    />
+                    {formErrors.firstName && (
+                      <p className="text-sm text-destructive flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        {formErrors.firstName}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="lastName" className="flex items-center gap-1">
+                      Nom <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="lastName"
+                      placeholder="Ex: Dupont"
+                      value={formData.lastName}
+                      onChange={(e) => handleInputChange('lastName', e.target.value)}
+                      className={`glass-card border-border/50 ${formErrors.lastName ? "border-destructive" : ""}`}
+                    />
+                    {formErrors.lastName && (
+                      <p className="text-sm text-destructive flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        {formErrors.lastName}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="name" className="flex items-center gap-1">
-                    Nom complet <span className="text-destructive">*</span>
+                  <Label htmlFor="login" className="flex items-center gap-1">
+                    Email <span className="text-destructive">*</span>
                   </Label>
                   <Input
-                    id="name"
-                    placeholder="Ex: Dr. Marie Dupont"
-                    value={formData.name}
-                    onChange={(e) => {
-                      setFormData({ ...formData, name: e.target.value })
-                      if (formErrors.name) setFormErrors({ ...formErrors, name: undefined })
-                    }}
-                    className={`glass-card border-border/50 ${formErrors.name ? "border-destructive" : ""}`}
+                    id="login"
+                    type="email"
+                    placeholder="email@cabinetx.com"
+                    value={formData.login}
+                    onChange={(e) => handleInputChange('login', e.target.value)}
+                    className={`glass-card border-border/50 ${formErrors.login ? "border-destructive" : ""}`}
                   />
-                  {formErrors.name && (
+                  {formErrors.login && (
                     <p className="text-sm text-destructive flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" />
-                      {formErrors.name}
+                      {formErrors.login}
                     </p>
                   )}
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="email" className="flex items-center gap-1">
-                    Email <span className="text-destructive">*</span>
+                  <Label htmlFor="phoneNumber" className="flex items-center gap-1">
+                    Téléphone <span className="text-destructive">*</span>
                   </Label>
                   <Input
-                    id="email"
-                    type="email"
-                    placeholder="email@cabinetx.com"
-                    value={formData.email}
-                    onChange={(e) => {
-                      setFormData({ ...formData, email: e.target.value })
-                      if (formErrors.email) setFormErrors({ ...formErrors, email: undefined })
-                    }}
-                    className={`glass-card border-border/50 ${formErrors.email ? "border-destructive" : ""}`}
+                    id="phoneNumber"
+                    type="tel"
+                    placeholder="+212 6XX XXX XXX"
+                    value={formData.phoneNumber}
+                    onChange={(e) => handleInputChange('phoneNumber', e.target.value)}
+                    className={`glass-card border-border/50 ${formErrors.phoneNumber ? "border-destructive" : ""}`}
                   />
-                  {formErrors.email && (
+                  {formErrors.phoneNumber && (
                     <p className="text-sm text-destructive flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" />
-                      {formErrors.email}
+                      {formErrors.phoneNumber}
                     </p>
                   )}
                 </div>
@@ -269,10 +403,7 @@ export default function UsersPage() {
                     type="password"
                     placeholder="••••••••"
                     value={formData.password}
-                    onChange={(e) => {
-                      setFormData({ ...formData, password: e.target.value })
-                      if (formErrors.password) setFormErrors({ ...formErrors, password: undefined })
-                    }}
+                    onChange={(e) => handleInputChange('password', e.target.value)}
                     className={`glass-card border-border/50 ${formErrors.password ? "border-destructive" : ""}`}
                   />
                   {formErrors.password && (
@@ -290,20 +421,63 @@ export default function UsersPage() {
                   </Label>
                   <Select
                     value={formData.role}
-                    onValueChange={(value: UserRole) => setFormData({ ...formData, role: value })}
+                    onValueChange={(value: UserRole) => {
+                      setFormData(prev => ({ ...prev, role: value, clinicId: value === "ADMIN" ? null : prev.clinicId }))
+                      if (formErrors.clinicId && value === "ADMIN") {
+                        const newErrors = { ...formErrors }
+                        delete newErrors.clinicId
+                        setFormErrors(newErrors)
+                      }
+                    }}
                   >
                     <SelectTrigger className="glass-card border-border/50">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="medecin">Médecin</SelectItem>
-                      <SelectItem value="secretaire">Secrétaire</SelectItem>
-                      <SelectItem value="admin">Administrateur</SelectItem>
+                      <SelectItem value="MEDCIN">Médecin</SelectItem>
+                      <SelectItem value="SECRETAIRE">Secrétaire</SelectItem>
+                      <SelectItem value="ADMIN">Administrateur</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <Button onClick={handleCreateUser} className="w-full glow-primary">
-                  Créer l'utilisateur
+
+                {/* Clinic Selection - Only for MEDCIN and SECRETAIRE */}
+                {(formData.role === "MEDCIN" || formData.role === "SECRETAIRE") && (
+                  <div className="space-y-2">
+                    <Label htmlFor="clinicId" className="flex items-center gap-1">
+                      Clinique <span className="text-destructive">*</span>
+                    </Label>
+                    <Combobox
+                      options={activeClinics.map((clinic) => ({
+                        value: clinic.id!.toString(),
+                        label: clinic.name,
+                        subtitle: clinic.address
+                      }))}
+                      value={formData.clinicId?.toString() ?? ""}
+                      onValueChange={(value) => handleInputChange('clinicId', value ? Number(value) : null)}
+                      placeholder="Sélectionner une clinique"
+                      searchPlaceholder="Rechercher une clinique..."
+                      emptyText="Aucune clinique trouvée"
+                      className={formErrors.clinicId ? "border-destructive" : ""}
+                      disabled={activeClinics.length === 0}
+                    />
+                    {formErrors.clinicId && (
+                      <p className="text-sm text-destructive flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        {formErrors.clinicId}
+                      </p>
+                    )}
+                  </div>
+                )}
+                <Button onClick={handleCreateUser} className="w-full glow-primary" disabled={createUserMutation.isPending}>
+                  {createUserMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Création...
+                    </>
+                  ) : (
+                    "Créer l'utilisateur"
+                  )}
                 </Button>
               </div>
             </DialogContent>
@@ -325,7 +499,7 @@ export default function UsersPage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Médecins</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-primary">{users.filter((u) => u.role === "medecin").length}</div>
+              <div className="text-3xl font-bold text-primary">{users.filter((u) => u.role === "MEDCIN").length}</div>
             </CardContent>
           </Card>
           <Card className="glass-card border-border/50 overflow-hidden">
@@ -334,7 +508,7 @@ export default function UsersPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-blue-500">
-                {users.filter((u) => u.role === "secretaire").length}
+                {users.filter((u) => u.role === "SECRETAIRE").length}
               </div>
             </CardContent>
           </Card>
@@ -366,6 +540,7 @@ export default function UsersPage() {
                 <TableRow className="border-border/50">
                   <TableHead>Utilisateur</TableHead>
                   <TableHead>Email</TableHead>
+                  <TableHead>Téléphone</TableHead>
                   <TableHead>Rôle</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -377,16 +552,21 @@ export default function UsersPage() {
                       <div className="flex items-center gap-3">
                         <Avatar className="w-10 h-10 border-2 border-primary/20">
                           <AvatarFallback className="bg-primary/10 text-primary text-sm font-bold">
-                            {user.name
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")}
+                            {user.firstName[0]}{user.lastName[0]}
                           </AvatarFallback>
                         </Avatar>
-                        <span className="font-medium">{user.name}</span>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{user.firstName} {user.lastName}</span>
+                          {!user.active && (
+                            <Badge variant="outline" className="w-fit text-xs text-muted-foreground">
+                              Inactif
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{user.email}</TableCell>
+                    <TableCell className="text-muted-foreground">{user.login}</TableCell>
+                    <TableCell className="text-muted-foreground">{user.phoneNumber}</TableCell>
                     <TableCell>
                       <Badge className={getRoleBadgeColor(user.role)}>{getRoleLabel(user.role)}</Badge>
                     </TableCell>
@@ -403,8 +583,9 @@ export default function UsersPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => handleDeleteUser(user.id)}
+                          onClick={() => user.id && handleDeleteUser(user.id)}
                           className="hover:bg-destructive/10 text-destructive"
+                          disabled={!user.active || deactivateUserMutation.isPending}
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
@@ -433,47 +614,82 @@ export default function UsersPage() {
               <DialogDescription>Modifiez les informations de l'utilisateur</DialogDescription>
             </DialogHeader>
             <div className="space-y-4 mt-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-firstName" className="flex items-center gap-1">
+                    Prénom <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="edit-firstName"
+                    placeholder="Ex: Marie"
+                    value={formData.firstName}
+                    onChange={(e) => handleInputChange('firstName', e.target.value)}
+                    className={`glass-card border-border/50 ${formErrors.firstName ? "border-destructive" : ""}`}
+                  />
+                  {formErrors.firstName && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {formErrors.firstName}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="edit-lastName" className="flex items-center gap-1">
+                    Nom <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="edit-lastName"
+                    placeholder="Ex: Dupont"
+                    value={formData.lastName}
+                    onChange={(e) => handleInputChange('lastName', e.target.value)}
+                    className={`glass-card border-border/50 ${formErrors.lastName ? "border-destructive" : ""}`}
+                  />
+                  {formErrors.lastName && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {formErrors.lastName}
+                    </p>
+                  )}
+                </div>
+              </div>
+
               <div className="space-y-2">
-                <Label htmlFor="edit-name" className="flex items-center gap-1">
-                  Nom complet <span className="text-destructive">*</span>
+                <Label htmlFor="edit-login" className="flex items-center gap-1">
+                  Email <span className="text-destructive">*</span>
                 </Label>
                 <Input
-                  id="edit-name"
-                  placeholder="Ex: Dr. Marie Dupont"
-                  value={formData.name}
-                  onChange={(e) => {
-                    setFormData({ ...formData, name: e.target.value })
-                    if (formErrors.name) setFormErrors({ ...formErrors, name: undefined })
-                  }}
-                  className={`glass-card border-border/50 ${formErrors.name ? "border-destructive" : ""}`}
+                  id="edit-login"
+                  type="email"
+                  placeholder="email@cabinetx.com"
+                  value={formData.login}
+                  onChange={(e) => handleInputChange('login', e.target.value)}
+                  className={`glass-card border-border/50 ${formErrors.login ? "border-destructive" : ""}`}
                 />
-                {formErrors.name && (
+                {formErrors.login && (
                   <p className="text-sm text-destructive flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" />
-                    {formErrors.name}
+                    {formErrors.login}
                   </p>
                 )}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="edit-email" className="flex items-center gap-1">
-                  Email <span className="text-destructive">*</span>
+                <Label htmlFor="edit-phoneNumber" className="flex items-center gap-1">
+                  Téléphone <span className="text-destructive">*</span>
                 </Label>
                 <Input
-                  id="edit-email"
-                  type="email"
-                  placeholder="email@cabinetx.com"
-                  value={formData.email}
-                  onChange={(e) => {
-                    setFormData({ ...formData, email: e.target.value })
-                    if (formErrors.email) setFormErrors({ ...formErrors, email: undefined })
-                  }}
-                  className={`glass-card border-border/50 ${formErrors.email ? "border-destructive" : ""}`}
+                  id="edit-phoneNumber"
+                  type="tel"
+                  placeholder="+212 6XX XXX XXX"
+                  value={formData.phoneNumber}
+                  onChange={(e) => handleInputChange('phoneNumber', e.target.value)}
+                  className={`glass-card border-border/50 ${formErrors.phoneNumber ? "border-destructive" : ""}`}
                 />
-                {formErrors.email && (
+                {formErrors.phoneNumber && (
                   <p className="text-sm text-destructive flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" />
-                    {formErrors.email}
+                    {formErrors.phoneNumber}
                   </p>
                 )}
               </div>
@@ -485,10 +701,7 @@ export default function UsersPage() {
                   type="password"
                   placeholder="••••••••"
                   value={formData.password}
-                  onChange={(e) => {
-                    setFormData({ ...formData, password: e.target.value })
-                    if (formErrors.password) setFormErrors({ ...formErrors, password: undefined })
-                  }}
+                  onChange={(e) => handleInputChange('password', e.target.value)}
                   className={`glass-card border-border/50 ${formErrors.password ? "border-destructive" : ""}`}
                 />
                 {formErrors.password && (
@@ -506,20 +719,63 @@ export default function UsersPage() {
                 </Label>
                 <Select
                   value={formData.role}
-                  onValueChange={(value: UserRole) => setFormData({ ...formData, role: value })}
+                  onValueChange={(value: UserRole) => {
+                    setFormData(prev => ({ ...prev, role: value, clinicId: value === "ADMIN" ? null : prev.clinicId }))
+                    if (formErrors.clinicId && value === "ADMIN") {
+                      const newErrors = { ...formErrors }
+                      delete newErrors.clinicId
+                      setFormErrors(newErrors)
+                    }
+                  }}
                 >
                   <SelectTrigger className="glass-card border-border/50">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="medecin">Médecin</SelectItem>
-                    <SelectItem value="secretaire">Secrétaire</SelectItem>
-                    <SelectItem value="admin">Administrateur</SelectItem>
+                    <SelectItem value="MEDCIN">Médecin</SelectItem>
+                    <SelectItem value="SECRETAIRE">Secrétaire</SelectItem>
+                    <SelectItem value="ADMIN">Administrateur</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <Button onClick={handleEditUser} className="w-full glow-primary">
-                Enregistrer les modifications
+
+              {/* Clinic Selection - Only for MEDCIN and SECRETAIRE */}
+              {(formData.role === "MEDCIN" || formData.role === "SECRETAIRE") && (
+                <div className="space-y-2">
+                  <Label htmlFor="edit-clinicId" className="flex items-center gap-1">
+                    Clinique <span className="text-destructive">*</span>
+                  </Label>
+                  <Combobox
+                    options={activeClinics.map((clinic) => ({
+                      value: clinic.id!.toString(),
+                      label: clinic.name,
+                      subtitle: clinic.address
+                    }))}
+                    value={formData.clinicId?.toString() ?? ""}
+                    onValueChange={(value) => handleInputChange('clinicId', value ? Number(value) : null)}
+                    placeholder="Sélectionner une clinique"
+                    searchPlaceholder="Rechercher une clinique..."
+                    emptyText="Aucune clinique trouvée"
+                    className={formErrors.clinicId ? "border-destructive" : ""}
+                    disabled={activeClinics.length === 0}
+                  />
+                  {formErrors.clinicId && (
+                    <p className="text-sm text-destructive flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {formErrors.clinicId}
+                    </p>
+                  )}
+                </div>
+              )}
+              <Button onClick={handleEditUser} className="w-full glow-primary" disabled={updateUserMutation.isPending}>
+                {updateUserMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Enregistrement...
+                  </>
+                ) : (
+                  "Enregistrer les modifications"
+                )}
               </Button>
             </div>
           </DialogContent>

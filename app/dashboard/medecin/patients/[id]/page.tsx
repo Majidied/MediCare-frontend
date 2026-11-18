@@ -9,9 +9,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useNotifications } from "@/lib/notifications-context"
-import { consultationApi, type ConsultationSummaryDTO } from "@/api/consultation.api"
-import { useQuery } from "@tanstack/react-query"
+import { useNotifications } from "@/hooks/use-notifications"
+import { useAuth } from "@/lib/auth-context"
+import { useCurrentUser } from "@/hooks/use-user"
+import { consultationApi, type ConsultationDTO, type ConsultationSummaryDTO } from "@/api/consultation.api"
+import { rdvApi, type StatutRDV } from "@/api/rdv.api"
+import { medicationApi, type MedicationDTO } from "@/api/medication.api"
+import { prescriptionApi, type PrescriptionDTO, type PrescriptionLineDTO } from "@/api/prescription.api"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Combobox } from "@/components/ui/combobox"
 import {
   User,
   Calendar,
@@ -29,28 +35,35 @@ import {
   CheckCircle,
   Loader2,
 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
 import { usePatient } from "@/hooks/use-patient"
 import { type Patient } from "@/api/patient.api"
-import { MOCK_MEDICATIONS, type Ordonnance } from "@/lib/mock-data"
 
 export default function PatientDetailsPage() {
   type ConsultationViewModel = ConsultationSummaryDTO & {
+    rendezVousId?: number
+    patientId?: number
+    medecinId?: number
+    cabinetId?: number
     examenClinique?: string
     examenSupplementaire?: string
     traitement?: string
     observations?: string
     status?: string
-    ordonnance?: Ordonnance
+    prescription?: PrescriptionDTO
   }
 
   const params = useParams<{ id: string }>()
   const patientId = typeof params?.id === "string" ? Number(params.id) : Number.NaN
   const isValidPatientId = Number.isFinite(patientId) && patientId > 0
+  const { user } = useAuth()
+  const { data: userDetails } = useCurrentUser(user?.email)
+  const medecinId = userDetails?.id ?? 0
   const { toast } = useToast()
   const { addBillingNotification } = useNotifications()
+  const queryClient = useQueryClient()
   const { data: patientData, isLoading, isError, error } = usePatient(isValidPatientId ? patientId : 0)
   const {
     data: consultationsData,
@@ -64,6 +77,63 @@ export default function PatientDetailsPage() {
       return data
     },
     enabled: isValidPatientId,
+    refetchOnWindowFocus: false,
+  })
+  const { data: medications = [], isLoading: medicationsLoading, isError: medicationsError } = useQuery({
+    queryKey: ["medications", "all"],
+    queryFn: async () => {
+      const { data } = await medicationApi.getAll()
+      return data
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+  const { data: patientPrescriptions = [], isLoading: prescriptionsLoading } = useQuery({
+    queryKey: ["prescriptions", "patient", patientId],
+    queryFn: async () => {
+      const { data } = await prescriptionApi.getByPatient(patientId)
+      return data
+    },
+    enabled: isValidPatientId,
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+  const {
+    data: todayRdv,
+    isLoading: todayRdvLoading,
+    isError: todayRdvError,
+    error: todayRdvErrorObj,
+  } = useQuery({
+    queryKey: ["rdv", "today", patientId],
+    queryFn: () => rdvApi.getTodayForPatient(patientId),
+    enabled: isValidPatientId,
+    refetchOnWindowFocus: false,
+  })
+  const updateConsultationMutation = useMutation({
+    mutationFn: async ({ consultationId, payload }: { consultationId: number; payload: Partial<ConsultationDTO> }) => {
+      const { data } = await consultationApi.update(consultationId, payload)
+      return data
+    },
+  })
+  const createConsultationMutation = useMutation({
+    mutationFn: async (payload: Partial<ConsultationDTO>) => {
+      const { data } = await consultationApi.create(payload)
+      return data
+    },
+  })
+  const deleteConsultationMutation = useMutation({
+    mutationFn: (consultationId: number) => consultationApi.delete(consultationId),
+  })
+  const addPrescriptionLineMutation = useMutation({
+    mutationFn: async ({ prescriptionId, line }: { prescriptionId: number; line: PrescriptionLineDTO }) => {
+      const response = await prescriptionApi.addLine(prescriptionId, line)
+      return response.data
+    },
+  })
+  const createPrescriptionMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const { data } = await prescriptionApi.create(payload)
+      return data
+    },
   })
   const [patient, setPatient] = useState<Patient | null>(null)
   const [consultations, setConsultations] = useState<ConsultationViewModel[]>([])
@@ -73,14 +143,103 @@ export default function PatientDetailsPage() {
   const [isEditMode, setIsEditMode] = useState(false)
   const [newConsultation, setNewConsultation] = useState({
     dateConsultation: new Date().toISOString(),
-    type: "",
+    type: "CONSULTATION",
     diagnostic: "",
     traitement: "",
     observations: "",
   })
   const [selectedMedications, setSelectedMedications] = useState<
-    Array<{ medicationId: string; posologie: string; duree: string }>
+    Array<{ medicationId: number | ""; posologie: string; duree: string; commentaire?: string }>
   >([])
+  const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const signaturePadRef = useRef<any>(null)
+  const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null)
+  const [isSignatureReady, setIsSignatureReady] = useState(false)
+
+  useEffect(() => {
+    let isMounted = true
+
+    const initSignaturePad = async () => {
+      if (!ordonnanceDialogOpen) return
+
+      try {
+        // @ts-ignore: signature_pad has no types in this project; import as any
+        const SignaturePad = (await import("signature_pad")).default as any
+        const canvas = signatureCanvasRef.current
+
+        if (!isMounted || !canvas) return
+
+        const ratio = Math.max(window.devicePixelRatio || 1, 1)
+        const displayHeight = canvas.offsetHeight || 200
+        const displayWidth = canvas.offsetWidth || 600
+
+        canvas.width = displayWidth * ratio
+        canvas.height = displayHeight * ratio
+        const context = canvas.getContext("2d")
+        context?.scale(ratio, ratio)
+
+        const pad = new SignaturePad(canvas, {
+          backgroundColor: "#ffffff",
+          penColor: "#0f172a",
+        })
+
+        pad.clear()
+        signaturePadRef.current = pad
+        setIsSignatureReady(true)
+      } catch (err) {
+        console.error("Impossible de charger la signature", err)
+        toast({
+          title: "Module de signature indisponible",
+          description: "Veuillez recharger la page ou vérifier votre connexion.",
+          variant: "destructive",
+        })
+      }
+    }
+
+    initSignaturePad()
+
+    return () => {
+      isMounted = false
+      signaturePadRef.current = null
+      setIsSignatureReady(false)
+    }
+  }, [ordonnanceDialogOpen, toast])
+
+  const handleSaveSignature = () => {
+    const pad = signaturePadRef.current
+    if (!pad || pad.isEmpty()) {
+      toast({
+        title: "Signature requise",
+        description: "Dessinez votre signature avant de l'enregistrer.",
+        variant: "destructive",
+      })
+      return
+    }
+    setSignatureDataUrl(pad.toDataURL("image/png"))
+  }
+
+  const handleClearSignature = () => {
+    signaturePadRef.current?.clear?.()
+    setSignatureDataUrl(null)
+  }
+
+  const closeOrdonnanceDialog = () => {
+    setOrdonnanceDialogOpen(false)
+    setEditConsultationId(null)
+    setSelectedMedications([])
+    setSignatureDataUrl(null)
+    signaturePadRef.current?.clear?.()
+  }
+
+  const updateConsultationsState = (
+    updater: ConsultationViewModel[] | ((prev: ConsultationViewModel[]) => ConsultationViewModel[]),
+  ) => {
+    setConsultations((prev) => {
+      const nextState = typeof updater === "function" ? (updater as (p: ConsultationViewModel[]) => ConsultationViewModel[])(prev) : updater
+      queryClient.setQueryData(["consultations", "patient", patientId], nextState)
+      return nextState
+    })
+  }
 
   useEffect(() => {
     if (patientData) {
@@ -90,9 +249,13 @@ export default function PatientDetailsPage() {
 
   useEffect(() => {
     if (consultationsData) {
-      setConsultations(consultationsData)
+      const merged = consultationsData.map((c) => ({
+        ...c,
+        prescription: patientPrescriptions.find((p) => p.consultationId === c.id),
+      }))
+      updateConsultationsState(merged)
     }
-  }, [consultationsData])
+  }, [consultationsData, patientPrescriptions])
 
   if (!isValidPatientId) {
     return (
@@ -105,7 +268,7 @@ export default function PatientDetailsPage() {
     )
   }
 
-  if (isLoading || consultationsLoading) {
+  if (isLoading || consultationsLoading || todayRdvLoading) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center py-12">
@@ -116,21 +279,34 @@ export default function PatientDetailsPage() {
     )
   }
 
-  if (isError || consultationsError || !patient) {
+  if (isError || consultationsError || todayRdvError || !patient) {
     return (
       <DashboardLayout>
         <Card className="p-6 flex items-center gap-2 text-destructive">
           <AlertCircle className="w-5 h-5" />
           <span>
             Erreur :
-            {(error as any)?.message || (consultationsErrorObj as any)?.message || "Impossible de charger le patient"}
+            {(error as any)?.message ||
+              (consultationsErrorObj as any)?.message ||
+              (todayRdvErrorObj as any)?.message ||
+              "Impossible de charger le patient"}
           </span>
         </Card>
       </DashboardLayout>
     )
   }
 
-  const handleAddConsultation = () => {
+  const ineligibleStatuses: StatutRDV[] = ["TERMINE", "ANNULE", "CONFIRME", "MISSING"]
+  const hasEligibleRdv = !!todayRdv && !ineligibleStatuses.includes(todayRdv.statutRDV)
+  console.log("Status today RDV:", todayRdv?.statutRDV, "Has eligible RDV:", hasEligibleRdv)
+  const hasConsultationForTodayRdv =
+    !!todayRdv?.id &&
+    consultations.some((consultation) => {
+      const consultationDetails = consultation as Partial<ConsultationDTO>
+      return consultationDetails.rendezVousId === todayRdv.id
+    })
+
+  const handleAddConsultation = async () => {
     if (!newConsultation.type || !newConsultation.diagnostic) {
       toast({
         title: "Erreur",
@@ -140,46 +316,116 @@ export default function PatientDetailsPage() {
       return
     }
 
-    if (isEditMode && editConsultationId) {
-      setConsultations((prev) =>
-        prev.map((c) =>
-          c.id === Number(editConsultationId)
-            ? {
-                ...c,
-                dateConsultation: newConsultation.dateConsultation,
-                type: newConsultation.type,
-                diagnostic: newConsultation.diagnostic,
-                traitement: newConsultation.traitement,
-                observations: newConsultation.observations,
-              }
-            : c,
-        ),
-      )
-
+    if (!hasEligibleRdv || !todayRdv?.id) {
       toast({
-        title: "Consultation modifiée",
-        description: "La consultation a été mise à jour avec succès",
+        title: "Rendez-vous requis",
+        description: "Aucun rendez-vous valide pour aujourd'hui. Impossible de créer la consultation.",
+        variant: "destructive",
       })
-    } else {
-      const consultation = {
-        id: Date.now(),
-        rendezVousId: 0,
-        patientId,
-        medecinId: 0,
-        cabinetId: 0,
-        type: newConsultation.type,
-        dateConsultation: newConsultation.dateConsultation,
-        diagnostic: newConsultation.diagnostic,
-        traitement: newConsultation.traitement,
-        observations: newConsultation.observations,
+      return
+    }
+
+    if (!isEditMode && hasConsultationForTodayRdv) {
+      toast({
+        title: "Consultation existante",
+        description: "Une consultation est déjà liée à ce rendez-vous.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const currentRdv = todayRdv as NonNullable<typeof todayRdv>
+
+    if (isEditMode && editConsultationId) {
+      const existing = consultations.find((c) => c.id === Number(editConsultationId))
+      if (!existing) {
+        toast({ title: "Erreur", description: "Consultation introuvable", variant: "destructive" })
+        return
       }
 
-      setConsultations((prev) => [...prev, consultation])
+      const rendezVousIdToSend = existing.rendezVousId ?? todayRdv?.id
+      if (!rendezVousIdToSend) {
+        toast({
+          title: "Rendez-vous manquant",
+          description: "Impossible de mettre à jour sans identifiant de rendez-vous.",
+          variant: "destructive",
+        })
+        return
+      }
 
-      toast({
-        title: "Consultation ajoutée",
-        description: "La consultation a été créée avec succès",
-      })
+      try {
+        const payload: Partial<ConsultationDTO> = {
+          id: existing.id,
+          rendezVousId: rendezVousIdToSend,
+          patientId,
+          medecinId: existing.medecinId ?? medecinId,
+          cabinetId: (patient as Patient).cabinetId ?? 0,
+          type: newConsultation.type,
+          dateConsultation: newConsultation.dateConsultation,
+          diagnostic: newConsultation.diagnostic,
+          traitement: newConsultation.traitement,
+          observations: newConsultation.observations,
+          examenClinique: existing.examenClinique,
+          examenSupplementaire: existing.examenSupplementaire,
+          archived: existing.archived,
+          archivedAt: existing.archivedAt,
+        }
+
+        const updated = await updateConsultationMutation.mutateAsync({
+          consultationId: Number(editConsultationId),
+          payload,
+        })
+
+        updateConsultationsState((prev) => prev.map((c) => (c.id === Number(editConsultationId) ? { ...c, ...updated } : c)))
+
+        toast({
+          title: "Consultation modifiée",
+          description: "La consultation a été mise à jour avec succès",
+        })
+      } catch (err: any) {
+        toast({
+          title: "Erreur",
+          description: err?.response?.data?.message || "Impossible de mettre à jour la consultation",
+          variant: "destructive",
+        })
+        return
+      }
+    } else {
+      try {
+        const payload: Partial<ConsultationDTO> = {
+          patientId,
+          medecinId,
+          cabinetId: currentRdv.cabinetId ?? 0,
+          rendezVousId: currentRdv.id,
+          type: newConsultation.type,
+          dateConsultation: newConsultation.dateConsultation,
+          diagnostic: newConsultation.diagnostic,
+          traitement: newConsultation.traitement,
+          observations: newConsultation.observations,
+          archived: false,
+          archivedAt: undefined,
+        }
+
+        const created = await createConsultationMutation.mutateAsync(payload)
+        const viewModel: ConsultationViewModel = {
+          ...created,
+          diagnostic: created.diagnostic ?? "",
+          status: created.archived ? "terminee" : undefined,
+        }
+        updateConsultationsState((prev) => [...prev, viewModel])
+
+        toast({
+          title: "Consultation ajoutée",
+          description: "La consultation a été créée avec succès",
+        })
+      } catch (err: any) {
+        toast({
+          title: "Erreur",
+          description: err?.response?.data?.message || "Impossible de créer la consultation",
+          variant: "destructive",
+        })
+        return
+      }
     }
 
     setConsultationDialogOpen(false)
@@ -187,15 +433,17 @@ export default function PatientDetailsPage() {
     setEditConsultationId(null)
     setNewConsultation({
       dateConsultation: new Date().toISOString(),
-      type: "",
+      type: "CONSULTATION",
       diagnostic: "",
       traitement: "",
       observations: "",
     })
   }
 
-  const handleAddOrdonnance = (consultationId: number) => {
-    if (selectedMedications.length === 0) {
+  const handleAddOrdonnance = async (consultationId: number) => {
+    const validLines = selectedMedications.filter((m) => m.medicationId !== "")
+
+    if (validLines.length === 0) {
       toast({
         title: "Erreur",
         description: "Veuillez sélectionner au moins un médicament",
@@ -207,46 +455,193 @@ export default function PatientDetailsPage() {
     const consultation = consultations.find((c) => c.id === consultationId)
     if (!consultation) return
 
-    const ordonnance: Ordonnance = {
-      id: Date.now().toString(),
-      consultationId: String(consultationId),
-      date: new Date().toISOString().split("T")[0],
-      medications: selectedMedications.map((med) => {
-        const medication = MOCK_MEDICATIONS.find((m) => m.id === med.medicationId)
-        return {
-          name: medication?.name || "",
-          dosage: medication?.dosage || "",
-          posologie: med.posologie,
-          duree: med.duree,
+    const hasExistingPrescription = Boolean(consultation.prescription)
+
+    if (hasExistingPrescription && consultation.prescription?.id) {
+      try {
+        let lastResponse = consultation.prescription
+        
+        for (const line of validLines) {
+          const med = medications.find((m) => m.id === Number(line.medicationId))
+          lastResponse = await addPrescriptionLineMutation.mutateAsync({
+            prescriptionId: consultation.prescription!.id!,
+            line: {
+              medicationId: Number(line.medicationId),
+              dosage: line.posologie,
+              durationDays: Number.parseInt(line.duree, 10) || 0,
+              comment: line.commentaire,
+              lineType: "MEDICATION",
+              medicationName: med?.commercialName,
+            },
+          })
         }
-      }),
+
+        updateConsultationsState((prev) => prev.map((c) => (c.id === consultationId ? { ...c, prescription: lastResponse } : c)))
+        setOrdonnanceDialogOpen(false)
+        setSelectedMedications([])
+
+        toast({
+          title: "Ordonnance mise à jour",
+          description: "Les lignes ont été ajoutées avec succès",
+        })
+      } catch (err: any) {
+        toast({
+          title: "Erreur",
+          description: err?.response?.data?.message || "Impossible d'ajouter les lignes",
+          variant: "destructive",
+        })
+      }
+    } else {
+      const payload = {
+        consultationId,
+        patientId,
+        doctorId: medecinId,
+        clinicId: (patient as Patient).cabinetId ?? 0,
+        prescriptionDate: new Date().toISOString().split("T")[0],
+        digitalSignature:
+          (signaturePadRef.current && !signaturePadRef.current.isEmpty()
+            ? signaturePadRef.current.toDataURL("image/png")
+            : signatureDataUrl) || undefined,
+        lines: validLines.map((line) => {
+          const med = medications.find((m) => m.id === Number(line.medicationId))
+          return {
+            medicationId: Number(line.medicationId),
+            dosage: line.posologie,
+            durationDays: Number.parseInt(line.duree, 10) || 0,
+            comment: line.commentaire,
+            lineType: "MEDICATION",
+            medicationName: med?.commercialName,
+          }
+        }),
+      }
+
+      try {
+        if (!payload.digitalSignature) {
+          toast({
+            title: "Signature requise",
+            description: "Veuillez ajouter et enregistrer la signature du médecin avant de générer l'ordonnance.",
+            variant: "destructive",
+          })
+          return
+        }
+
+        const created = await createPrescriptionMutation.mutateAsync(payload)
+        updateConsultationsState((prev) => prev.map((c) => (c.id === consultationId ? { ...c, prescription: created } : c)))
+        closeOrdonnanceDialog()
+
+        toast({
+          title: "Ordonnance créée",
+          description: "L'ordonnance a été enregistrée avec succès",
+        })
+      } catch (err: any) {
+        toast({
+          title: "Erreur",
+          description: err?.response?.data?.message || "Impossible de créer l'ordonnance",
+          variant: "destructive",
+        })
+      }
     }
-
-    setConsultations((prev) => prev.map((c) => (c.id === consultationId ? { ...c, ordonnance } : c)))
-    setOrdonnanceDialogOpen(false)
-    setSelectedMedications([])
-
-    toast({
-      title: "Ordonnance créée",
-      description: "L'ordonnance a été générée avec succès",
-    })
   }
 
-  const handleDeleteConsultation = (consultationId: number) => {
-    if (confirm("Êtes-vous sûr de vouloir supprimer cette consultation ?")) {
-      setConsultations((prev) => prev.filter((c) => c.id !== consultationId))
+  const handleDeleteConsultation = async (consultationId: number) => {
+    if (!confirm("Êtes-vous sûr de vouloir supprimer cette consultation ?")) return
+
+    const previous = [...consultations]
+    updateConsultationsState((prev) => prev.filter((c) => c.id !== consultationId))
+
+    try {
+      await deleteConsultationMutation.mutateAsync(consultationId)
       toast({
         title: "Consultation supprimée",
         description: "La consultation a été supprimée avec succès",
       })
+    } catch (err: any) {
+      updateConsultationsState(previous)
+      toast({
+        title: "Erreur",
+        description: err?.response?.data?.message || "Impossible de supprimer la consultation",
+        variant: "destructive",
+      })
     }
   }
 
-  const handlePrintOrdonnance = (ordonnance: Ordonnance) => {
-    toast({
-      title: "Impression",
-      description: "L'ordonnance est en cours d'impression...",
-    })
+  const handlePrintOrdonnance = (prescription: PrescriptionDTO) => {
+    if (!patient) {
+      toast({
+        title: "Patient introuvable",
+        description: "Impossible de préparer l'impression sans les informations patient.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const printWindow = window.open("", "PRINT", "height=900,width=700")
+
+    if (!printWindow) {
+      toast({
+        title: "Fenêtre bloquée",
+        description: "Veuillez autoriser les fenêtres surgissantes pour lancer l'impression.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const patientName = `${patient.nom ?? ""} ${patient.prenom ?? ""}`.trim()
+    const doctorName = [userDetails?.firstName, userDetails?.lastName].filter(Boolean).join(" ") || "Médecin"
+    const clinicName = "Cabinet Médical"
+    const linesHtml = prescription.lines
+      .map((line) => {
+        const medicationName = line.medicationName || "Médicament"
+        const duration = line.durationDays ? `${line.durationDays} jours` : ""
+        const comment = line.comment ? `<div style="color:#475569; font-size:12px; margin-top:4px;">${line.comment}</div>` : ""
+        return `<li style="margin-bottom:10px;"><strong>${medicationName}</strong><div>${line.dosage}</div><div style="color:#475569; font-size:12px;">${duration}</div>${comment}</li>`
+      })
+      .join("")
+
+    const signatureHtml = prescription.digitalSignature
+      ? `<div class="signature"><div style="font-size:12px; color:#475569; margin-bottom:6px;">Signature du médecin</div><img src="${prescription.digitalSignature}" alt="Signature du médecin" /></div>`
+      : `<div class="signature missing">Signature non fournie</div>`
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Ordonnance - ${patientName}</title>
+          <style>
+            body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; padding: 24px; }
+            .header { display: flex; justify-content: space-between; margin-bottom: 16px; }
+            .card { border: 1px solid #e2e8f0; padding: 16px; border-radius: 12px; margin-bottom: 16px; background: #fff; }
+            ul { padding-left: 20px; margin: 0; }
+            .signature { margin-top: 24px; }
+            .signature img { max-width: 220px; height: auto; border: 1px solid #e2e8f0; padding: 8px; border-radius: 8px; background: #fff; }
+            .signature.missing { padding: 12px; border: 1px dashed #cbd5e1; color: #475569; border-radius: 8px; display: inline-block; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <div style="font-size:22px; font-weight:700;">Dr. ${doctorName}</div>
+              <div style="color:#475569;">${clinicName}</div>
+              <div style="color:#475569; font-size:12px;">${patient.adresse?.ville ?? ""}</div>
+            </div>
+            <div style="text-align:right; color:#475569;">${new Date(prescription.prescriptionDate).toLocaleDateString()}</div>
+          </div>
+          <div class="card">
+            <div style="font-weight:600; margin-bottom:6px;">Patient</div>
+            <div>${patientName}</div>
+            <div style="color:#475569; font-size:12px;">${patient.cin ?? ""}</div>
+          </div>
+          <div class="card">
+            <div style="font-weight:600; margin-bottom:6px;">Ordonnance</div>
+            <ul>${linesHtml}</ul>
+          </div>
+          ${signatureHtml}
+        </body>
+      </html>
+    `)
+
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.print()
   }
 
   const addMedicationRow = () => {
@@ -257,7 +652,11 @@ export default function PatientDetailsPage() {
     setSelectedMedications(selectedMedications.filter((_, i) => i !== index))
   }
 
-  const updateMedication = (index: number, field: string, value: string) => {
+  const updateMedication = (
+    index: number,
+    field: "medicationId" | "posologie" | "duree" | "commentaire",
+    value: string | number,
+  ) => {
     const updated = [...selectedMedications]
     updated[index] = { ...updated[index], [field]: value }
     setSelectedMedications(updated)
@@ -276,7 +675,7 @@ export default function PatientDetailsPage() {
     setConsultationDialogOpen(true)
   }
 
-  const handleEndConsultation = (consultation: ConsultationViewModel) => {
+  const handleEndConsultation = async (consultation: ConsultationViewModel) => {
     if (!consultation.diagnostic || !consultation.traitement) {
       toast({
         title: "Erreur",
@@ -286,31 +685,60 @@ export default function PatientDetailsPage() {
       return
     }
 
-    setConsultations((prev) => prev.map((c) => (c.id === consultation.id ? { ...c, status: "terminee" } : c)))
+    const previous = [...consultations]
+    const optimisticArchivedAt = new Date().toISOString()
+    updateConsultationsState((prev) =>
+      prev.map((c) =>
+        c.id === consultation.id ? { ...c, status: "terminee", archived: true, archivedAt: optimisticArchivedAt } : c,
+      ),
+    )
 
-    addBillingNotification({
-      id: `billing-${Date.now()}`,
-      type: "billing",
-      consultationId: consultation.id,
-      patientId: patient.id,
-      patientName: [patient.nom, patient.prenom].filter(Boolean).join(" ").trim(),
-      patientAge: patient.dateNaissance
-        ? new Date().getFullYear() - new Date(patient.dateNaissance).getFullYear()
-        : undefined,
-      consultationDate: consultation.dateConsultation,
-      motif: consultation.type,
-      diagnostic: consultation.diagnostic,
-      traitement: consultation.traitement,
-      notes: consultation.observations,
-      status: "pending",
-      sentBy: "Dr. Sarah Martin",
-      sentAt: "À l'instant",
-    })
+    try {
+      const patientRecord = patient as Patient
+      const consultationDetails = consultation as Partial<ConsultationDTO>
+      const resolvedMedecinId = consultationDetails.medecinId ?? medecinId
+      const resolvedCabinetId = consultationDetails.cabinetId ?? patientRecord?.cabinetId
+      const resolvedRendezVousId =
+        consultationDetails.rendezVousId ?? todayRdv?.id ?? undefined
 
-    toast({
-      title: "Consultation terminée",
-      description: "La secrétaire a été notifiée pour la facturation",
-    })
+      const payload: Partial<ConsultationDTO> = {
+        id: consultation.id,
+        patientId: consultation.patientId ?? (patient as Patient).id,
+        medecinId: consultation.medecinId ?? medecinId,
+        cabinetId: consultation.cabinetId ?? (patient as Patient).cabinetId,
+        rendezVousId: consultation.rendezVousId ?? todayRdv?.id ?? 0,
+        type: consultation.type,
+        dateConsultation: consultation.dateConsultation,
+        diagnostic: consultation.diagnostic,
+        traitement: consultation.traitement,
+        observations: consultation.observations,
+        examenClinique: consultation.examenClinique,
+        examenSupplementaire: consultation.examenSupplementaire,
+        archived: true,
+        archivedAt: optimisticArchivedAt,
+      }
+
+      console.log("[consultation-update] Terminating consultation", consultation.id)
+      console.log("[consultation-update] Payload:", JSON.stringify(payload, null, 2))
+      const updated = await updateConsultationMutation.mutateAsync({ consultationId: consultation.id, payload })
+      console.log("[consultation-update] received", updated)
+      updateConsultationsState((prev) =>
+        prev.map((c) => (c.id === consultation.id ? { ...c, ...updated, status: "terminee" } : c)),
+      )
+
+      // Success: Backend will handle appointment status update and secretary notification
+      toast({
+        title: "Consultation terminée",
+        description: "Le rendez-vous a été marqué comme terminé et la secrétaire a été notifiée",
+      })
+    } catch (err: any) {
+      updateConsultationsState(previous)
+      toast({
+        title: "Erreur",
+        description: err?.response?.data?.message || "Impossible de terminer la consultation",
+        variant: "destructive",
+      })
+    }
   }
 
   return (
@@ -332,14 +760,8 @@ export default function PatientDetailsPage() {
               <p className="text-muted-foreground">Dossier médical complet</p>
             </div>
           </div>
-          <Badge
-            className={
-              patient.status === "Actif"
-                ? "bg-success/10 text-success border-success/20"
-                : "bg-muted/10 text-muted-foreground border-muted/20"
-            }
-          >
-            {patient.status}
+          <Badge className="bg-success/10 text-success border-success/20">
+            Actif
           </Badge>
         </div>
 
@@ -416,7 +838,7 @@ export default function PatientDetailsPage() {
                   setEditConsultationId(null)
                   setNewConsultation({
                     dateConsultation: new Date().toISOString(),
-                    type: "",
+                    type: "CONSULTATION",
                     diagnostic: "",
                     traitement: "",
                     observations: "",
@@ -425,7 +847,10 @@ export default function PatientDetailsPage() {
               }}
             >
               <DialogTrigger asChild>
-                <Button className="bg-primary hover:bg-primary/90 glow-primary">
+                <Button
+                  className="bg-primary hover:bg-primary/90 glow-primary"
+                  disabled={!hasEligibleRdv || todayRdvLoading}
+                >
                   <Plus className="w-4 h-4 mr-2" />
                   Nouvelle consultation
                 </Button>
@@ -435,6 +860,12 @@ export default function PatientDetailsPage() {
                   <DialogTitle>{isEditMode ? "Modifier la Consultation" : "Nouvelle Consultation"}</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4">
+                  {!hasEligibleRdv && !todayRdvLoading && (
+                    <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/5 text-sm text-destructive flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4" />
+                      Aucun rendez-vous valide trouvé pour aujourd'hui.
+                    </div>
+                  )}
                   <div>
                     <Label htmlFor="date">Date *</Label>
                     <Input
@@ -452,13 +883,18 @@ export default function PatientDetailsPage() {
                   </div>
                   <div>
                     <Label htmlFor="type">Type *</Label>
-                    <Input
-                      id="type"
+                    <Select
                       value={newConsultation.type}
-                      onChange={(e) => setNewConsultation({ ...newConsultation, type: e.target.value })}
-                      placeholder="Ex: Consultation de suivi"
-                      className="bg-background/50"
-                    />
+                      onValueChange={(value) => setNewConsultation({ ...newConsultation, type: value })}
+                    >
+                      <SelectTrigger id="type" className="bg-background/50">
+                        <SelectValue placeholder="Sélectionner un type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="CONSULTATION">CONSULTATION</SelectItem>
+                        <SelectItem value="CONTROLE">CONTROLE</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label htmlFor="diagnostic">Diagnostic *</Label>
@@ -497,7 +933,11 @@ export default function PatientDetailsPage() {
                     <Button variant="outline" onClick={() => setConsultationDialogOpen(false)}>
                       Annuler
                     </Button>
-                    <Button onClick={handleAddConsultation} className="bg-primary hover:bg-primary/90">
+                    <Button
+                      onClick={handleAddConsultation}
+                      className="bg-primary hover:bg-primary/90"
+                      disabled={createConsultationMutation.isPending}
+                    >
                       {isEditMode ? "Mettre à jour" : "Enregistrer"}
                     </Button>
                   </div>
@@ -519,13 +959,15 @@ export default function PatientDetailsPage() {
                         <Badge variant="outline" className="text-xs">
                           {consultation.dateConsultation}
                         </Badge>
-                          {consultation.status === "terminee" && (
-                          <Badge className="text-xs bg-green-500/20 text-green-400 border-green-500/30">Terminée</Badge>
+                        {(consultation.status === "terminee" || consultation.archived) && (
+                          <Badge className="text-xs bg-green-500/20 text-green-400 border-green-500/30">
+                            Terminée
+                          </Badge>
                         )}
                         <h3 className="font-semibold">{consultation.type || "-"}</h3>
                       </div>
                       <div className="flex gap-2">
-                        {consultation.status !== "terminee" && (
+                        {!(consultation.status === "terminee" || consultation.archived) && (
                           <>
                             <Button
                               variant="ghost"
@@ -553,6 +995,9 @@ export default function PatientDetailsPage() {
                         <p className="text-muted-foreground">Diagnostic:</p>
                         <p>{consultation.diagnostic}</p>
                       </div>
+                      {consultation.archivedAt && (
+                        <p className="text-xs text-muted-foreground">Archivée le {consultation.archivedAt}</p>
+                      )}
                       {consultation.traitement && (
                         <div>
                           <p className="text-muted-foreground">Traitement:</p>
@@ -568,7 +1013,7 @@ export default function PatientDetailsPage() {
                     </div>
 
                     {/* Ordonnance */}
-                    {consultation.ordonnance ? (
+                    {consultation.prescription ? (
                       <div className="mt-4 p-4 rounded-lg bg-primary/5 border border-primary/20">
                         <div className="flex items-center justify-between mb-3">
                           <h4 className="font-semibold flex items-center gap-2">
@@ -578,7 +1023,7 @@ export default function PatientDetailsPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handlePrintOrdonnance(consultation.ordonnance!)}
+                            onClick={() => handlePrintOrdonnance(consultation.prescription!)}
                             className="gap-2"
                           >
                             <Printer className="w-4 h-4" />
@@ -586,23 +1031,43 @@ export default function PatientDetailsPage() {
                           </Button>
                         </div>
                         <div className="space-y-2">
-                          {consultation.ordonnance.medications.map((med, idx) => (
-                            <div key={idx} className="text-sm p-2 rounded bg-background/50">
-                              <p className="font-medium">
-                                {med.name} - {med.dosage}
-                              </p>
-                              <p className="text-muted-foreground text-xs">{med.posologie}</p>
-                              <p className="text-muted-foreground text-xs">Durée: {med.duree}</p>
+                          {consultation.prescription.lines.map((line, idx) => {
+                            const med = medications.find((m) => m.id === line.medicationId)
+                            return (
+                              <div key={idx} className="text-sm p-2 rounded bg-background/50">
+                                <p className="font-medium">
+                                  {med?.commercialName || line.medicationName || "Médicament"}
+                                  {med?.dosage ? ` - ${med.dosage}` : ""}
+                                  {med?.form ? ` (${med.form})` : ""}
+                                </p>
+                                <p className="text-muted-foreground text-xs">{line.dosage}</p>
+                                <p className="text-muted-foreground text-xs">Durée: {line.durationDays} jours</p>
+                                {line.comment && <p className="text-muted-foreground text-xs">{line.comment}</p>}
+                              </div>
+                            )
+                          })}
+                          {consultation.prescription.digitalSignature && (
+                            <div className="pt-3">
+                              <p className="text-xs text-muted-foreground mb-1">Signature du médecin</p>
+                              <img
+                                src={consultation.prescription.digitalSignature}
+                                alt="Signature du médecin"
+                                className="h-16 rounded border bg-white p-1"
+                              />
                             </div>
-                          ))}
+                          )}
                         </div>
                       </div>
                     ) : (
                       <Dialog
                         open={ordonnanceDialogOpen && editConsultationId === String(consultation.id)}
                         onOpenChange={(open) => {
-                          setOrdonnanceDialogOpen(open)
-                          if (open) setEditConsultationId(String(consultation.id))
+                          if (!open) {
+                            closeOrdonnanceDialog()
+                            return
+                          }
+                          setOrdonnanceDialogOpen(true)
+                          setEditConsultationId(String(consultation.id))
                         }}
                       >
                         <DialogTrigger asChild>
@@ -634,21 +1099,21 @@ export default function PatientDetailsPage() {
                                 className="flex gap-2 items-start p-3 rounded-lg bg-background/50 border border-border/50"
                               >
                                 <div className="flex-1 space-y-2">
-                                  <Select
-                                    value={med.medicationId}
-                                    onValueChange={(value) => updateMedication(index, "medicationId", value)}
-                                  >
-                                    <SelectTrigger className="bg-background/50">
-                                      <SelectValue placeholder="Sélectionner un médicament" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {MOCK_MEDICATIONS.map((medication) => (
-                                        <SelectItem key={medication.id} value={medication.id}>
-                                          {medication.name} - {medication.dosage} ({medication.form})
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                  <Combobox
+                                    options={medications.map((medication) => ({
+                                      value: String(medication.id),
+                                      label: medication.commercialName,
+                                      subtitle: `${medication.dosage} • ${medication.form} • ${medication.type}`
+                                    }))}
+                                    value={med.medicationId === "" ? "" : String(med.medicationId)}
+                                    onValueChange={(value) => updateMedication(index, "medicationId", Number(value))}
+                                    placeholder="Sélectionner un médicament"
+                                    searchPlaceholder="Rechercher un médicament (nom, dosage, forme)..."
+                                    emptyText={medicationsLoading ? "Chargement..." : "Aucun médicament trouvé"}
+                                    className="bg-background/50"
+                                    disabled={medicationsLoading || medications.length === 0}
+                                    allowClear={true}
+                                  />
                                   <Input
                                     placeholder="Posologie (ex: 1 comprimé 3 fois par jour)"
                                     value={med.posologie}
@@ -678,12 +1143,42 @@ export default function PatientDetailsPage() {
                                 <p>Aucun médicament ajouté</p>
                               </div>
                             )}
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <Label>Signature du médecin</Label>
+                                <span className="text-xs text-muted-foreground">Obligatoire pour l'impression</span>
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                Dessinez votre signature puis cliquez sur «&nbsp;Enregistrer la signature&nbsp;». Elle sera envoyée avec l'ordonnance
+                                et utilisée à l'impression.
+                              </p>
+                              <div className="rounded-lg border bg-white p-2 shadow-sm">
+                                <canvas ref={signatureCanvasRef} className="w-full h-48" />
+                              </div>
+                              <div className="flex justify-end gap-2">
+                                <Button variant="outline" size="sm" onClick={handleClearSignature}>
+                                  Effacer
+                                </Button>
+                                <Button size="sm" onClick={handleSaveSignature} disabled={!isSignatureReady}>
+                                  Enregistrer la signature
+                                </Button>
+                              </div>
+                              {signatureDataUrl && (
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                  <span>Aperçu:</span>
+                                  <img
+                                    src={signatureDataUrl}
+                                    alt="Signature du médecin"
+                                    className="h-16 rounded border bg-white p-1"
+                                  />
+                                </div>
+                              )}
+                            </div>
                             <div className="flex justify-end gap-2 pt-4">
                               <Button
                                 variant="outline"
                                 onClick={() => {
-                                  setOrdonnanceDialogOpen(false)
-                                  setSelectedMedications([])
+                                  closeOrdonnanceDialog()
                                 }}
                               >
                                 Annuler
@@ -700,7 +1195,7 @@ export default function PatientDetailsPage() {
                         </DialogContent>
                       </Dialog>
                     )}
-                    {consultation.status !== "terminee" && (
+                    {!(consultation.status === "terminee" || consultation.archived) && (
                       <Button
                         onClick={() => handleEndConsultation(consultation)}
                         className="w-full mt-4 bg-green-500/20 hover:bg-green-500/30 text-green-400 border border-green-500/30"

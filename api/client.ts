@@ -48,34 +48,30 @@ apiClient.interceptors.response.use(
             console.error("📛 Data:", error.response.data)
 
             // Si erreur 401, tenter de refresh le token
-            if (error.response.status === 401) {
-                console.log("🔄 Erreur 401, tentative de refresh token...")
+                if (error.response.status === 401) {
+                    console.log("🔄 Erreur 401, tentative de refresh token...")
 
-                try {
-                    const refreshed = await keycloak.updateToken(5)
+                    try {
+                        const refreshed = await keycloak.updateToken(5)
 
-                    if (refreshed && keycloak.token) {
-                        console.log("✅ Token rafraîchi avec succès")
-                        localStorage.setItem('keycloak_token', keycloak.token)
+                        if (refreshed && keycloak.token) {
+                            console.log("✅ Token rafraîchi avec succès")
+                            localStorage.setItem('keycloak_token', keycloak.token)
 
-                        // Rejouer la requête originale avec le nouveau token
-                        error.config.headers.Authorization = `Bearer ${keycloak.token}`
-                        console.log("🔁 Rejeu de la requête avec nouveau token")
-                        return apiClient.request(error.config)
-                    } else {
-                        console.log("❌ Impossible de rafraîchir le token")
-                        // Rediriger vers login
-                        if (typeof window !== 'undefined') {
-                            window.location.href = '/login'
+                            // Rejouer la requête originale avec le nouveau token
+                            error.config.headers.Authorization = `Bearer ${keycloak.token}`
+                            console.log("🔁 Rejeu de la requête avec nouveau token")
+                            return apiClient.request(error.config)
                         }
+
+                        console.log("❌ Refresh token indisponible ou expiré")
+                    } catch (refreshError) {
+                        console.error("❌ Erreur lors du refresh:", refreshError)
                     }
-                } catch (refreshError) {
-                    console.error("❌ Erreur lors du refresh:", refreshError)
-                    if (typeof window !== 'undefined') {
-                        window.location.href = '/login'
-                    }
+
+                    // Laisser l'appelant gérer (affichage d'une page login, toast, etc.)
+                    return Promise.reject(error)
                 }
-            }
         } else if (error.request) {
             console.error("📡 Pas de réponse du serveur")
             console.error("📡 Request:", error.request)

@@ -8,7 +8,7 @@ import keycloak from "./keycloak"
 const KEYCLOAK_URL =
   (process.env.NEXT_PUBLIC_KEYCLOAK_URL && process.env.NEXT_PUBLIC_KEYCLOAK_URL !== "undefined")
     ? process.env.NEXT_PUBLIC_KEYCLOAK_URL
-    : 'http://3.84.72.92:8080'
+    : 'http://localhost:8180'
 
 const KEYCLOAK_REALM =
   (process.env.NEXT_PUBLIC_KEYCLOAK_REALM && process.env.NEXT_PUBLIC_KEYCLOAK_REALM !== "undefined")
